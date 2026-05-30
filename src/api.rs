@@ -150,26 +150,50 @@ impl ApiClient {
         }
 
         let data: serde_json::Value = resp.json().map_err(|e| TranslateError::Api(e.to_string()))?;
-        let mut languages = Vec::new();
-        if let Some(data_obj) = data.get("data").and_then(|d| d.as_object()) {
-            for (_engine_name, langs) in data_obj {
-                if let Some(lang_arr) = langs.as_array() {
-                    for lang in lang_arr {
-                        if let (Some(code), Some(name)) = (
-                            lang.get("language_code").and_then(|v| v.as_str()),
-                            lang.get("language_name").and_then(|v| v.as_str()),
-                        ) {
-                            if !languages.iter().any(|l: &LanguageInfo| l.language_code == code) {
-                                languages.push(LanguageInfo {
-                                    language_code: code.to_string(),
-                                    language_name: name.to_string(),
-                                });
+        let data_obj = data.get("data").and_then(|d| d.as_object());
+
+        let languages = if let Some(engine_name) = engine {
+            data_obj
+                .and_then(|obj| obj.get(engine_name))
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|lang| {
+                            let code = lang.get("language_code").and_then(|v| v.as_str())?;
+                            let name = lang.get("language_name").and_then(|v| v.as_str())?;
+                            Some(LanguageInfo {
+                                language_code: code.to_string(),
+                                language_name: name.to_string(),
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        } else {
+            let mut langs = Vec::new();
+            if let Some(obj) = data_obj {
+                for (_engine_name, lang_arr) in obj {
+                    if let Some(arr) = lang_arr.as_array() {
+                        for lang in arr {
+                            if let (Some(code), Some(name)) = (
+                                lang.get("language_code").and_then(|v| v.as_str()),
+                                lang.get("language_name").and_then(|v| v.as_str()),
+                            ) {
+                                if !langs.iter().any(|l: &LanguageInfo| l.language_code == code) {
+                                    langs.push(LanguageInfo {
+                                        language_code: code.to_string(),
+                                        language_name: name.to_string(),
+                                    });
+                                }
                             }
                         }
                     }
                 }
             }
-        }
+            langs
+        };
+
+        let mut languages = languages;
         languages.sort_by(|a, b| a.language_name.cmp(&b.language_name));
         Ok(languages)
     }

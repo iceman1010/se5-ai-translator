@@ -41,6 +41,7 @@ pub struct TranslatorApp {
 
     loading_engines: bool,
     loading_languages: bool,
+    came_from_ready: bool,
 }
 
 impl TranslatorApp {
@@ -80,6 +81,7 @@ impl TranslatorApp {
             translated_srt: None,
             loading_engines: false,
             loading_languages: false,
+            came_from_ready: false,
         }
     }
 
@@ -408,6 +410,14 @@ impl TranslatorApp {
     }
 
     fn draw_setup(&mut self, ui: &mut egui::Ui) {
+        if self.came_from_ready {
+            if ui.button("← Back").clicked() {
+                self.state = AppState::Ready;
+                self.status_message.clear();
+            }
+            ui.add_space(8.0);
+        }
+
         ui.group(|ui| {
             ui.heading("API Key");
             ui.add(
@@ -508,6 +518,7 @@ impl TranslatorApp {
                     self.start_translation(ctx.clone());
                 }
                 if ui.button("Settings").clicked() {
+                    self.came_from_ready = true;
                     self.state = AppState::Setup;
                 }
             });
