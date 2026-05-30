@@ -1,0 +1,21 @@
+[package]
+name = "se-ai-translator"
+version = "0.1.0"
+edition = "2024"
+description = "SubtitleEdit 5 plugin for AI subtitle translation via OpenSubtitles API"
+authors = ["AI OpenSubtitles"]
+
+[dependencies]
+eframe = "0.31"
+egui = "0.31"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["blocking", "json", "multipart", "native-tls"] }
+tokio = { version = "1", features = ["rt", "time"] }
+log = "0.4"
+env_logger = "0.11"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
