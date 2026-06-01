@@ -8,6 +8,7 @@ enum AppState {
     Setup,
     Ready,
     Translating,
+    Detecting,
     Done,
     Error,
 }
@@ -15,6 +16,28 @@ enum AppState {
 struct ThreadResult {
     translated: Option<String>,
     error: Option<String>,
+}
+
+struct DetectResult {
+    iso_code: String,
+    w3c_code: String,
+    language_name: String,
+}
+
+fn find_nearest_language_idx(languages: &[LanguageInfo], detected_code: &str) -> Option<usize> {
+    let detected_lower = detected_code.to_lowercase();
+
+    languages.iter().position(|l| l.language_code.to_lowercase() == detected_lower).or_else(|| {
+        let base_detected = detected_lower.split('-').next().unwrap_or(&detected_lower);
+        let base_detected2 = detected_lower.split('_').next().unwrap_or(&detected_lower);
+        languages.iter().position(|l| {
+            let lc_lower = l.language_code.to_lowercase();
+            let base_lang = lc_lower.split('-').next().unwrap_or("");
+            let base_lang2 = lc_lower.split('_').next().unwrap_or("");
+            base_lang == base_detected || base_lang2 == base_detected2
+                || base_detected == base_lang || base_detected2 == base_lang2
+        })
+    })
 }
 
 pub struct TranslatorApp {
@@ -42,6 +65,8 @@ pub struct TranslatorApp {
     loading_engines: bool,
     loading_languages: bool,
     came_from_ready: bool,
+    detecting_language: bool,
+    detect_result: Arc<Mutex<Option<Result<DetectResult, String>>>>,
 }
 
 impl TranslatorApp {
@@ -82,6 +107,8 @@ impl TranslatorApp {
             loading_engines: false,
             loading_languages: false,
             came_from_ready: false,
+            detecting_language: false,
+            detect_result: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -94,24 +121,19 @@ impl TranslatorApp {
             self.state = AppState::Ready;
             self.status_message = "Loading engines and languages...".to_string();
             self.loading_engines = true;
-        } else if !loaded_settings.api_key.is_empty() {
-            self.settings = loaded_settings;
-            self.state = AppState::Setup;
-            self.status_message = "Please log in to continue.".to_string();
         } else {
             self.settings = loaded_settings;
             self.state = AppState::Setup;
-            self.status_message = "Enter your API key and login credentials.".to_string();
+            self.status_message = "Please log in to continue.".to_string();
         }
 
         self.se_request = Some(request);
     }
 
     fn fetch_engines_and_languages(&mut self) {
-        let api_key = self.settings.api_key.clone();
         let auth_token = self.settings.auth_token.clone().unwrap_or_default();
 
-        let client = ApiClient::new(&api_key, &auth_token);
+        let client = ApiClient::new(&auth_token);
         self.engines = match client.fetch_engines() {
             Ok(e) => e,
             Err(e) => {
@@ -155,9 +177,8 @@ impl TranslatorApp {
     }
 
     fn fetch_languages_for_engine(&mut self) {
-        let api_key = self.settings.api_key.clone();
         let auth_token = self.settings.auth_token.clone().unwrap_or_default();
-        let client = ApiClient::new(&api_key, &auth_token);
+        let client = ApiClient::new(&auth_token);
 
         let engine_name = self.engines.get(self.selected_engine_idx).map(|s| s.as_str());
         match client.fetch_languages(engine_name) {
@@ -197,14 +218,11 @@ impl TranslatorApp {
             },
         };
 
-        let source_lang = if self.selected_source_idx == 0 {
-            "auto".to_string()
-        } else {
-            self.languages
-                .get(self.selected_source_idx - 1)
-                .map(|l| l.language_code.clone())
-                .unwrap_or_else(|| "auto".to_string())
-        };
+        let source_lang = self
+            .languages
+            .get(self.selected_source_idx)
+            .map(|l| l.language_code.clone())
+            .unwrap_or_else(|| "auto".to_string());
 
         let target_lang = self
             .languages
@@ -218,7 +236,6 @@ impl TranslatorApp {
             .cloned()
             .unwrap_or_default();
 
-        let api_key = self.settings.api_key.clone();
         let auth_token = self.settings.auth_token.clone().unwrap_or_default();
 
         self.state = AppState::Translating;
@@ -236,7 +253,7 @@ impl TranslatorApp {
         let thread_result = self.thread_result.clone();
 
         std::thread::spawn(move || {
-            let client = ApiClient::new(&api_key, &auth_token);
+            let client = ApiClient::new(&auth_token);
             let result = client.translate(
                 &srt_content,
                 &source_lang,
@@ -270,10 +287,6 @@ impl TranslatorApp {
     }
 
     fn do_login(&mut self) {
-        if self.settings.api_key.is_empty() {
-            self.status_message = "API key is required.".to_string();
-            return;
-        }
         if self.login_username.is_empty() || self.login_password.is_empty() {
             self.status_message = "Username and password are required.".to_string();
             return;
@@ -281,11 +294,10 @@ impl TranslatorApp {
 
         self.status_message = "Logging in...".to_string();
 
-        let api_key = self.settings.api_key.clone();
         let username = self.login_username.clone();
         let password = self.login_password.clone();
 
-        match ApiClient::login(&api_key, &username, &password) {
+        match ApiClient::login(&username, &password) {
             Ok(token) => {
                 self.settings.auth_token = Some(token);
                 self.login_password.clear();
@@ -332,6 +344,82 @@ impl TranslatorApp {
             }
         }
     }
+
+    fn start_detect(&mut self, ctx: egui::Context) {
+        let request = match &self.se_request {
+            Some(r) => r.clone(),
+            None => {
+                self.status_message = "No subtitle loaded".to_string();
+                return;
+            }
+        };
+
+        let srt_content = match (&request.subtitle.sub_rip, &request.subtitle.native) {
+            (Some(s), _) | (_, Some(s)) => s.clone(),
+            _ => {
+                self.status_message = "No subtitle content".to_string();
+                return;
+            }
+        };
+
+        let auth_token = self.settings.auth_token.clone().unwrap_or_default();
+        let detect_result = self.detect_result.clone();
+
+        self.detecting_language = true;
+        self.state = AppState::Detecting;
+        self.status_message = "Detecting language...".to_string();
+        *detect_result.lock().unwrap() = None;
+
+        std::thread::spawn(move || {
+            let client = ApiClient::new(&auth_token);
+            let result = match client.detect_language(&srt_content) {
+                Ok(detected) => Ok(DetectResult {
+                    iso_code: detected.iso_639_1.clone(),
+                    w3c_code: detected.w3c.clone(),
+                    language_name: detected.name.clone(),
+                }),
+                Err(e) => Err(e.to_string()),
+            };
+
+            if let Ok(mut res) = detect_result.lock() {
+                *res = Some(result);
+            }
+
+            ctx.request_repaint();
+        });
+    }
+
+    fn check_detect_result(&mut self) {
+        if let Ok(mut res) = self.detect_result.lock() {
+            if let Some(result) = res.take() {
+                match result {
+                    Ok(detected) => {
+                        if let Some(idx) = find_nearest_language_idx(&self.languages, &detected.w3c_code)
+                            .or_else(|| find_nearest_language_idx(&self.languages, &detected.iso_code))
+                        {
+                            self.selected_source_idx = idx;
+                            self.status_message = format!(
+                                "Detected: {}",
+                                self.languages.get(idx)
+                                    .map(|l| format!("{} ({})", l.language_name, l.language_code))
+                                    .unwrap_or_else(|| detected.language_name.clone())
+                            );
+                        } else {
+                            self.status_message = format!(
+                                "Detected: {} ({}) — no matching language in current engine",
+                                detected.language_name, detected.w3c_code
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        self.status_message = format!("Detection failed: {e}");
+                    }
+                }
+                self.detecting_language = false;
+                self.state = AppState::Ready;
+            }
+        }
+    }
 }
 
 impl eframe::App for TranslatorApp {
@@ -357,6 +445,11 @@ impl eframe::App for TranslatorApp {
             ctx.request_repaint();
         }
 
+        if matches!(self.state, AppState::Detecting) {
+            self.check_detect_result();
+            ctx.request_repaint();
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(8.0);
@@ -374,6 +467,10 @@ impl eframe::App for TranslatorApp {
                     }
                     AppState::Ready => {
                         self.draw_translation(ui, ctx.clone());
+                    }
+                    AppState::Detecting => {
+                        ui.spinner();
+                        ui.label(&self.status_message);
                     }
                     AppState::Translating => {
                         self.draw_progress(ui);
@@ -417,18 +514,6 @@ impl TranslatorApp {
             }
             ui.add_space(8.0);
         }
-
-        ui.group(|ui| {
-            ui.heading("API Key");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.settings.api_key)
-                    .hint_text("Enter your OpenSubtitles API key")
-                    .password(true)
-                    .desired_width(300.0),
-            );
-        });
-
-        ui.add_space(8.0);
 
         ui.group(|ui| {
             ui.heading("Login");
@@ -475,25 +560,26 @@ impl TranslatorApp {
 
             ui.add_space(4.0);
 
-            let mut source_options: Vec<String> = vec!["Auto-detect".to_string()];
             let lang_labels: Vec<String> = self
                 .languages
                 .iter()
                 .map(|l| format!("{} ({})", l.language_name, l.language_code))
                 .collect();
-            source_options.extend(lang_labels.clone());
 
             ui.horizontal(|ui| {
                 ui.label("Source:");
-                let default_source = "Auto-detect";
-                let selected_source = source_options.get(self.selected_source_idx).map(|s| s.as_str()).unwrap_or(default_source);
+                let default_source = "Select language";
+                let selected_source = lang_labels.get(self.selected_source_idx).map(|s| s.as_str()).unwrap_or(default_source);
                 egui::ComboBox::from_id_salt("source_selector")
                     .selected_text(selected_source)
                     .show_ui(ui, |ui| {
-                        for (i, name) in source_options.iter().enumerate() {
+                        for (i, name) in lang_labels.iter().enumerate() {
                             ui.selectable_value(&mut self.selected_source_idx, i, name);
                         }
                     });
+                if ui.button("Detect").clicked() {
+                    self.start_detect(ctx.clone());
+                }
             });
 
             ui.add_space(4.0);

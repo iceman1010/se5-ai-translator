@@ -1,3 +1,4 @@
+use crate::config::API_KEY;
 use reqwest::blocking::multipart;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -26,9 +27,17 @@ pub struct LanguageInfo {
     pub language_name: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct DetectedLanguage {
+    #[serde(rename = "ISO_639_1")]
+    pub iso_639_1: String,
+    #[serde(rename = "W3C")]
+    pub w3c: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ApiClient {
-    api_key: String,
     auth_token: String,
     client: reqwest::blocking::Client,
 }
@@ -55,23 +64,22 @@ impl std::fmt::Display for TranslateError {
 }
 
 impl ApiClient {
-    pub fn new(api_key: &str, auth_token: &str) -> Self {
+    pub fn new(auth_token: &str) -> Self {
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .expect("Failed to create HTTP client");
         Self {
-            api_key: api_key.to_string(),
             auth_token: auth_token.to_string(),
             client,
         }
     }
 
-    pub fn login(api_key: &str, username: &str, password: &str) -> Result<String, TranslateError> {
+    pub fn login(username: &str, password: &str) -> Result<String, TranslateError> {
         let client = reqwest::blocking::Client::new();
         let resp = client
             .post(format!("{API_BASE_URL}/login"))
-            .header("Api-Key", api_key)
+            .header("Api-Key", API_KEY)
             .header("Accept", "application/json")
             .header("User-Agent", "se-ai-translator v0.1.0")
             .json(&serde_json::json!({
@@ -96,7 +104,7 @@ impl ApiClient {
 
     fn common_headers(&self) -> reqwest::header::HeaderMap {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("Api-Key", self.api_key.parse().expect("invalid api key"));
+        headers.insert("Api-Key", API_KEY.parse().expect("invalid api key"));
         headers.insert(
             "Authorization",
             format!("Bearer {}", self.auth_token).parse().expect("invalid token"),
@@ -104,6 +112,50 @@ impl ApiClient {
         headers.insert("Accept", "application/json".parse().unwrap());
         headers.insert("User-Agent", "se-ai-translator v0.1.0".parse().unwrap());
         headers
+    }
+
+    pub fn detect_language(&self, srt_content: &str) -> Result<DetectedLanguage, TranslateError> {
+        let tmp_dir = std::env::temp_dir().join("se-ai-translator-detect");
+        std::fs::create_dir_all(&tmp_dir).map_err(|e| TranslateError::Api(e.to_string()))?;
+        let file_path = tmp_dir.join("subtitle.srt");
+        std::fs::write(&file_path, srt_content).map_err(|e| TranslateError::Api(e.to_string()))?;
+
+        let file_part = multipart::Part::file(&file_path)
+            .map_err(|e| TranslateError::Api(e.to_string()))?
+            .file_name("subtitle.srt")
+            .mime_str("text/plain")
+            .map_err(|e| TranslateError::Api(e.to_string()))?;
+
+        let form = multipart::Form::new().part("file", file_part);
+
+        let resp = self
+            .client
+            .post(format!("{API_BASE_URL}/ai/detect_language"))
+            .headers(self.common_headers())
+            .multipart(form)
+            .send()
+            .map_err(|e| TranslateError::Network(e.to_string()))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().unwrap_or_default();
+            return Err(TranslateError::Api(format!("Language detection failed ({status}): {body}")));
+        }
+
+        let data: serde_json::Value = resp.json().map_err(|e| TranslateError::Api(e.to_string()))?;
+
+        let lang_data = data
+            .get("data")
+            .and_then(|d| d.get("language"))
+            .cloned()
+            .or_else(|| data.get("language").cloned())
+            .ok_or_else(|| TranslateError::Api("No language in detection response".to_string()))?;
+
+        let detected: DetectedLanguage =
+            serde_json::from_value(lang_data).map_err(|e| TranslateError::Api(format!("Invalid detection response: {e}")))?;
+
+        let _ = std::fs::remove_file(&file_path);
+        Ok(detected)
     }
 
     pub fn fetch_engines(&self) -> Result<Vec<String>, TranslateError> {

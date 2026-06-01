@@ -1,4 +1,5 @@
 mod api;
+mod config;
 mod se_contract;
 mod ui;
 

@@ -127,7 +127,6 @@ impl SeResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginSettings {
-    pub api_key: String,
     pub auth_token: Option<String>,
     pub last_source_lang: Option<String>,
     pub last_target_lang: Option<String>,
@@ -137,7 +136,6 @@ pub struct PluginSettings {
 impl Default for PluginSettings {
     fn default() -> Self {
         Self {
-            api_key: String::new(),
             auth_token: None,
             last_source_lang: Some("auto".to_string()),
             last_target_lang: None,
@@ -154,7 +152,7 @@ impl PluginSettings {
     }
 
     pub fn has_credentials(&self) -> bool {
-        !self.api_key.is_empty() && self.auth_token.as_ref().is_some_and(|t| !t.is_empty())
+        self.auth_token.as_ref().is_some_and(|t| !t.is_empty())
     }
 }
 
