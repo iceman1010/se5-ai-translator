@@ -1,4 +1,5 @@
 use crate::config::API_KEY;
+use crate::debug_log;
 use reqwest::blocking::multipart;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -278,10 +279,12 @@ impl ApiClient {
 
         let form = multipart::Form::new()
             .part("file", file_part)
-            .text("translate_from", effective_source)
+            .text("translate_from", effective_source.clone())
             .text("translate_to", target_lang.to_string())
             .text("api", engine.to_string())
             .text("return_content", "true".to_string());
+
+        debug_log!("translate: from={effective_source} to={target_lang} engine={engine}");
 
         let resp = self
             .client
@@ -299,6 +302,8 @@ impl ApiClient {
         }
 
         let data: serde_json::Value = resp.json().map_err(|e| TranslateError::Api(e.to_string()))?;
+        debug_log!("translate response: {}", serde_json::to_string_pretty(&data).unwrap_or_default());
+
         let correlation_id = data
             .get("correlation_id")
             .and_then(|v| v.as_str())
@@ -355,18 +360,22 @@ impl ApiClient {
 
             let data: serde_json::Value = resp.json().map_err(|e| TranslateError::Api(e.to_string()))?;
             let status = data.get("status").and_then(|v| v.as_str()).unwrap_or("UNKNOWN");
+            debug_log!("poll attempt={attempt} status={status} data={}", serde_json::to_string(&data).unwrap_or_default());
 
             match status {
                 "COMPLETED" => {
                     let translation = data
-                        .get("translation")
+                        .get("data")
+                        .and_then(|d| d.get("return_content"))
                         .and_then(|v| v.as_str())
                         .or_else(|| {
                             data.get("data")
                                 .and_then(|d| d.get("translation"))
                                 .and_then(|v| v.as_str())
                         })
+                        .or_else(|| data.get("translation").and_then(|v| v.as_str()))
                         .ok_or_else(|| {
+                            debug_log!("poll COMPLETED but no content found. Full response: {}", serde_json::to_string(&data).unwrap_or_default());
                             TranslateError::Api("Translation completed but no content returned".to_string())
                         })?;
 

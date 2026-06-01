@@ -128,6 +128,8 @@ impl SeResponse {
 #[serde(rename_all = "camelCase")]
 pub struct PluginSettings {
     pub auth_token: Option<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
     pub last_source_lang: Option<String>,
     pub last_target_lang: Option<String>,
     pub last_engine: Option<String>,
@@ -137,6 +139,8 @@ impl Default for PluginSettings {
     fn default() -> Self {
         Self {
             auth_token: None,
+            username: None,
+            password: None,
             last_source_lang: Some("auto".to_string()),
             last_target_lang: None,
             last_engine: None,

@@ -1,4 +1,5 @@
 use crate::api::{ApiClient, LanguageInfo};
+use crate::debug_log;
 use crate::se_contract::{PluginSettings, SeRequest, SeResponse};
 use eframe::egui;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,6 +63,7 @@ pub struct TranslatorApp {
     thread_result: Arc<Mutex<Option<ThreadResult>>>,
     translated_srt: Option<String>,
 
+    first_frame: bool,
     loading_engines: bool,
     loading_languages: bool,
     came_from_ready: bool,
@@ -104,6 +106,7 @@ impl TranslatorApp {
             progress: Arc::new(Mutex::new(0.0)),
             thread_result: Arc::new(Mutex::new(None)),
             translated_srt: None,
+            first_frame: true,
             loading_engines: false,
             loading_languages: false,
             came_from_ready: false,
@@ -113,16 +116,23 @@ impl TranslatorApp {
     }
 
     pub fn set_request(&mut self, request: SeRequest) {
+        debug_log!("set_request: response_path={} raw_settings={:?}", request.response_file_path, request.settings);
         self.response_path = Some(request.response_file_path.clone());
 
         let loaded_settings = PluginSettings::from_se_settings(request.settings.as_ref());
-        if loaded_settings.has_credentials() {
-            self.settings = loaded_settings;
+        debug_log!("loaded_settings: auth_token={:?} username={:?} password={:?} has_creds={}", 
+            loaded_settings.auth_token, loaded_settings.username, loaded_settings.password, loaded_settings.has_credentials());
+        self.settings = loaded_settings;
+
+        if let Some(ref u) = self.settings.username {
+            self.login_username = u.clone();
+        }
+
+        if self.settings.has_credentials() {
             self.state = AppState::Ready;
             self.status_message = "Loading engines and languages...".to_string();
             self.loading_engines = true;
         } else {
-            self.settings = loaded_settings;
             self.state = AppState::Setup;
             self.status_message = "Please log in to continue.".to_string();
         }
@@ -247,6 +257,7 @@ impl TranslatorApp {
         self.settings.last_source_lang = Some(source_lang.clone());
         self.settings.last_target_lang = Some(target_lang.clone());
         self.settings.last_engine = Some(engine.clone());
+        self.save_settings_now();
 
         let cancel = self.cancel_flag.clone();
         let progress = self.progress.clone();
@@ -292,14 +303,24 @@ impl TranslatorApp {
             return;
         }
 
+        debug_log!("do_login: attempting login for user={}", self.login_username);
         self.status_message = "Logging in...".to_string();
 
         let username = self.login_username.clone();
         let password = self.login_password.clone();
+        
+        // SAVE IMMEDIATELY - don't wait for API response
+        self.settings.username = Some(username.clone());
+        self.settings.password = Some(password.clone());
+        debug_log!("credentials saved to settings before API call: username={} password={}", username, password);
+        self.save_settings_now();
 
         match ApiClient::login(&username, &password) {
             Ok(token) => {
-                self.settings.auth_token = Some(token);
+                debug_log!("login success, token={}", token);
+                self.settings.auth_token = Some(token.clone());
+                debug_log!("token saved, now saving again");
+                self.save_settings_now();
                 self.login_password.clear();
                 self.state = AppState::Ready;
                 self.status_message = "Logged in. Loading engines and languages...".to_string();
@@ -313,7 +334,19 @@ impl TranslatorApp {
 
     fn write_result(&self) {
         if let (Some(path), Some(response)) = (&self.response_path, self.build_response()) {
+            debug_log!("write_result: status={} settings={{auth_token={:?}, username={:?}}}", 
+                response.status, response.settings.as_ref().and_then(|s| s.get("authToken")), 
+                response.settings.as_ref().and_then(|s| s.get("username")));
             let _ = crate::se_contract::write_response(&response, path);
+        }
+    }
+
+    fn save_settings_now(&self) {
+        self.write_result();
+        
+        // Also save to local config file for persistence across plugin restarts
+        if let Err(e) = crate::local_config::save_settings(&self.settings) {
+            debug_log!("Warning: could not save to local config: {e}");
         }
     }
 
@@ -424,6 +457,11 @@ impl TranslatorApp {
 
 impl eframe::App for TranslatorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.first_frame {
+            self.first_frame = false;
+            self.write_result();
+        }
+
         if self.loading_engines {
             self.fetch_engines_and_languages();
             ctx.request_repaint();
@@ -491,6 +529,9 @@ impl eframe::App for TranslatorApp {
                         }
                     }
                 }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                    ui.label(egui::RichText::new(concat!("v", env!("CARGO_PKG_VERSION"))).small().color(egui::Color32::GRAY));
+                });
             });
         });
 
@@ -501,7 +542,7 @@ impl eframe::App for TranslatorApp {
 impl TranslatorApp {
     fn write_result_on_close(&self, ctx: &egui::Context) {
         let is_closing = ctx.input(|i| i.viewport().close_requested());
-        if is_closing && !matches!(self.state, AppState::Done) {
+        if is_closing {
             self.write_result();
         }
     }
@@ -629,5 +670,11 @@ impl TranslatorApp {
             self.state = AppState::Error;
             self.status_message = "Translation cancelled.".to_string();
         }
+    }
+}
+
+impl Drop for TranslatorApp {
+    fn drop(&mut self) {
+        self.write_result();
     }
 }

@@ -14,6 +14,7 @@ reqwest = { version = "0.12", features = ["blocking", "json", "multipart", "nati
 tokio = { version = "1", features = ["rt", "time"] }
 log = "0.4"
 env_logger = "0.11"
+dirs = "5"
 
 [profile.release]
 opt-level = "s"
