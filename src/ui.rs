@@ -343,11 +343,6 @@ impl TranslatorApp {
 
     fn save_settings_now(&self) {
         self.write_result();
-        
-        // Also save to local config file for persistence across plugin restarts
-        if let Err(e) = crate::local_config::save_settings(&self.settings) {
-            debug_log!("Warning: could not save to local config: {e}");
-        }
     }
 
     fn build_response(&self) -> Option<SeResponse> {

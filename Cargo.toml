@@ -1,6 +1,6 @@
 [package]
 name = "se-ai-translator"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "SubtitleEdit 5 plugin for AI subtitle translation via OpenSubtitles API"
 authors = ["AI OpenSubtitles"]
@@ -14,7 +14,6 @@ reqwest = { version = "0.12", features = ["blocking", "json", "multipart", "nati
 tokio = { version = "1", features = ["rt", "time"] }
 log = "0.4"
 env_logger = "0.11"
-dirs = "5"
 
 [profile.release]
 opt-level = "s"
