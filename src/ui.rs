@@ -5,6 +5,9 @@ use eframe::egui;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+const ICON_PNG: &[u8] = include_bytes!("../icons/icon.png");
+const APP_DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
+
 enum AppState {
     Setup,
     Ready,
@@ -69,6 +72,8 @@ pub struct TranslatorApp {
     came_from_ready: bool,
     detecting_language: bool,
     detect_result: Arc<Mutex<Option<Result<DetectResult, String>>>>,
+
+    logo_texture: Option<egui::TextureHandle>,
 }
 
 impl TranslatorApp {
@@ -87,6 +92,23 @@ impl TranslatorApp {
             .insert(0, "my_font".to_owned());
 
         cc.egui_ctx.set_fonts(fonts);
+
+        let logo_texture = {
+            let image = image::load_from_memory(ICON_PNG)
+                .expect("failed to load embedded icon.png");
+            let size = [image.width() as usize, image.height() as usize];
+            let pixels: Vec<egui::Color32> = image
+                .to_rgba8()
+                .pixels()
+                .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+                .collect();
+            let color_image = egui::ColorImage { size, pixels };
+            Some(cc.egui_ctx.load_texture(
+                "logo",
+                color_image,
+                egui::TextureOptions::LINEAR,
+            ))
+        };
 
         Self {
             settings,
@@ -112,6 +134,7 @@ impl TranslatorApp {
             came_from_ready: false,
             detecting_language: false,
             detect_result: Arc::new(Mutex::new(None)),
+            logo_texture,
         }
     }
 
@@ -486,7 +509,14 @@ impl eframe::App for TranslatorApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(8.0);
-                ui.heading("AI Translate (OpenSubtitles)");
+                if let Some(tex) = &self.logo_texture {
+                    let size = egui::Vec2::splat(48.0);
+                    ui.image(egui::load::SizedTexture::new(tex.id(), size));
+                }
+                ui.add_space(2.0);
+                ui.label(
+                    egui::RichText::new(APP_DESCRIPTION).small().color(egui::Color32::GRAY),
+                );
                 ui.add_space(4.0);
 
                 if !self.status_message.is_empty() && !matches!(self.state, AppState::Translating) {

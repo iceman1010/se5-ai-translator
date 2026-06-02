@@ -4,8 +4,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 EXAMPLE_SRT="$SCRIPT_DIR/example_srt/test_archer_2min.srt"
-BINARY="$PLUGIN_DIR/target/release/se-ai-translator"
 ENV_FILE="$SCRIPT_DIR/.env"
+
+DEV_MODE=false
+TEST_FILTER="all"
+for arg in "$@"; do
+    case "$arg" in
+        --dev) DEV_MODE=true ;;
+        contract|gui|cancel|all) TEST_FILTER="$arg" ;;
+    esac
+done
+
+if $DEV_MODE; then
+    BINARY="$PLUGIN_DIR/target/debug/se-ai-translator"
+else
+    BINARY="$PLUGIN_DIR/target/release/se-ai-translator"
+fi
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -44,8 +58,13 @@ require_env() {
 
 check_binary() {
     if [[ ! -x "$BINARY" ]]; then
-        info "Binary not found. Building release..."
-        (cd "$PLUGIN_DIR" && cargo build --release)
+        if $DEV_MODE; then
+            info "Binary not found. Building debug..."
+            (cd "$PLUGIN_DIR" && cargo build)
+        else
+            info "Binary not found. Building release..."
+            (cd "$PLUGIN_DIR" && cargo build --release)
+        fi
     fi
     ok "Binary ready: $BINARY"
 }
@@ -275,7 +294,7 @@ check_binary
 check_example
 echo ""
 
-case "${1:-all}" in
+case "$TEST_FILTER" in
     contract)
         info "Running: JSON contract validation"
         test_contract_json
@@ -295,12 +314,13 @@ case "${1:-all}" in
         test_gui_launch
         ;;
     *)
-        echo "Usage: $0 [contract|gui|cancel|all]"
+        echo "Usage: $0 [--dev] [contract|gui|cancel|all]"
         echo ""
-        echo "  contract  Validate request.json generation (no GUI, no .env needed)"
-        echo "  gui       Launch plugin with test data (interactive, uses .env if present)"
-        echo "  cancel    Test cancel/close behaviour (interactive)"
-        echo "  all       Run contract then gui (default)"
+        echo "  --dev    Use debug build (target/debug/) instead of release"
+        echo "  contract Validate request.json generation (no GUI, no .env needed)"
+        echo "  gui      Launch plugin with test data (interactive, uses .env if present)"
+        echo "  cancel   Test cancel/close behaviour (interactive)"
+        echo "  all      Run contract then gui (default)"
         exit 1
         ;;
 esac
