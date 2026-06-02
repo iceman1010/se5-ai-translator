@@ -3160,11 +3160,12 @@ dependencies = [
 
 [[package]]
 name = "se-ai-translator"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eframe",
  "egui",
  "env_logger",
+ "image",
  "log",
  "reqwest",
  "serde",

@@ -1,9 +1,9 @@
 [package]
 name = "se-ai-translator"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "SubtitleEdit 5 plugin for AI subtitle translation via OpenSubtitles API"
-authors = ["AI OpenSubtitles"]
+authors = ["AI.OpenSubtitles.com"]
 
 [dependencies]
 eframe = "0.31"
@@ -12,6 +12,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["blocking", "json", "multipart", "native-tls"] }
 tokio = { version = "1", features = ["rt", "time"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
 env_logger = "0.11"
 
