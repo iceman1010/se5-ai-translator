@@ -8,9 +8,17 @@ use std::sync::{Arc, Mutex};
 const ICON_PNG: &[u8] = include_bytes!("../icons/icon.png");
 const APP_DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 
-enum AppState {
-    Setup,
-    Ready,
+#[derive(Clone, Copy, PartialEq)]
+enum Tab {
+    Translate,
+    AiModels,
+    Settings,
+    Account,
+    Credits,
+}
+
+enum TranslationState {
+    Idle,
     Translating,
     Detecting,
     Done,
@@ -48,8 +56,10 @@ pub struct TranslatorApp {
     settings: PluginSettings,
     se_request: Option<SeRequest>,
     response_path: Option<String>,
-    state: AppState,
-    status_message: String,
+    translation_state: TranslationState,
+    active_tab: Tab,
+    translate_status: String,
+    account_status: String,
 
     engines: Vec<String>,
     languages: Vec<LanguageInfo>,
@@ -69,7 +79,6 @@ pub struct TranslatorApp {
     first_frame: bool,
     loading_engines: bool,
     loading_languages: bool,
-    came_from_ready: bool,
     detecting_language: bool,
     detect_result: Arc<Mutex<Option<Result<DetectResult, String>>>>,
 
@@ -114,8 +123,10 @@ impl TranslatorApp {
             settings,
             se_request: None,
             response_path: None,
-            state: AppState::Setup,
-            status_message: String::new(),
+            translation_state: TranslationState::Idle,
+            active_tab: Tab::Translate,
+            translate_status: String::new(),
+            account_status: String::new(),
             engines: Vec::new(),
             languages: Vec::new(),
             selected_engine_idx: 0,
@@ -131,7 +142,6 @@ impl TranslatorApp {
             first_frame: true,
             loading_engines: false,
             loading_languages: false,
-            came_from_ready: false,
             detecting_language: false,
             detect_result: Arc::new(Mutex::new(None)),
             logo_texture,
@@ -143,7 +153,7 @@ impl TranslatorApp {
         self.response_path = Some(request.response_file_path.clone());
 
         let loaded_settings = PluginSettings::from_se_settings(request.settings.as_ref());
-        debug_log!("loaded_settings: auth_token={:?} username={:?} password={:?} has_creds={}", 
+        debug_log!("loaded_settings: auth_token={:?} username={:?} password={:?} has_creds={}",
             loaded_settings.auth_token, loaded_settings.username, loaded_settings.password, loaded_settings.has_credentials());
         self.settings = loaded_settings;
 
@@ -152,12 +162,14 @@ impl TranslatorApp {
         }
 
         if self.settings.has_credentials() {
-            self.state = AppState::Ready;
-            self.status_message = "Loading engines and languages...".to_string();
+            self.translation_state = TranslationState::Idle;
+            self.active_tab = Tab::Translate;
+            self.translate_status = "Loading engines and languages...".to_string();
             self.loading_engines = true;
         } else {
-            self.state = AppState::Setup;
-            self.status_message = "Please log in to continue.".to_string();
+            self.translation_state = TranslationState::Idle;
+            self.active_tab = Tab::Account;
+            self.account_status = "Please log in to continue.".to_string();
         }
 
         self.se_request = Some(request);
@@ -170,7 +182,7 @@ impl TranslatorApp {
         self.engines = match client.fetch_engines() {
             Ok(e) => e,
             Err(e) => {
-                self.status_message = format!("Failed to load engines: {e}");
+                self.translate_status = format!("Failed to load engines: {e}");
                 return;
             }
         };
@@ -189,14 +201,14 @@ impl TranslatorApp {
         self.languages = match client.fetch_languages(engine_for_langs) {
             Ok(l) => l,
             Err(e) => {
-                self.status_message = format!("Failed to load languages: {e}");
+                self.translate_status = format!("Failed to load languages: {e}");
                 return;
             }
         };
 
         self.loading_engines = false;
         self.loading_languages = false;
-        self.status_message.clear();
+        self.translate_status.clear();
 
         if let Some(ref last_target) = self.settings.last_target_lang {
             self.selected_target_idx = self
@@ -221,10 +233,10 @@ impl TranslatorApp {
                 self.selected_target_idx = 0;
                 self.prev_engine_idx = self.selected_engine_idx;
                 self.loading_languages = false;
-                self.status_message.clear();
+                self.translate_status.clear();
             }
             Err(e) => {
-                self.status_message = format!("Failed to load languages: {e}");
+                self.translate_status = format!("Failed to load languages: {e}");
             }
         }
     }
@@ -233,8 +245,8 @@ impl TranslatorApp {
         let request = match &self.se_request {
             Some(r) => r.clone(),
             None => {
-                self.state = AppState::Error;
-                self.status_message = "No SE request loaded".to_string();
+                self.translation_state = TranslationState::Error;
+                self.translate_status = "No SE request loaded".to_string();
                 return;
             }
         };
@@ -244,8 +256,8 @@ impl TranslatorApp {
             None => match &request.subtitle.native {
                 Some(s) => s.clone(),
                 None => {
-                    self.state = AppState::Error;
-                    self.status_message = "No subtitle content in request".to_string();
+                    self.translation_state = TranslationState::Error;
+                    self.translate_status = "No subtitle content in request".to_string();
                     return;
                 }
             },
@@ -271,10 +283,10 @@ impl TranslatorApp {
 
         let auth_token = self.settings.auth_token.clone().unwrap_or_default();
 
-        self.state = AppState::Translating;
+        self.translation_state = TranslationState::Translating;
         *self.progress.lock().unwrap() = 0.0;
         self.cancel_flag.store(false, Ordering::Relaxed);
-        self.status_message = "Translating...".to_string();
+        self.translate_status = "Translating...".to_string();
         *self.thread_result.lock().unwrap() = None;
 
         self.settings.last_source_lang = Some(source_lang.clone());
@@ -322,17 +334,16 @@ impl TranslatorApp {
 
     fn do_login(&mut self) {
         if self.login_username.is_empty() || self.login_password.is_empty() {
-            self.status_message = "Username and password are required.".to_string();
+            self.account_status = "Username and password are required.".to_string();
             return;
         }
 
         debug_log!("do_login: attempting login for user={}", self.login_username);
-        self.status_message = "Logging in...".to_string();
+        self.account_status = "Logging in...".to_string();
 
         let username = self.login_username.clone();
         let password = self.login_password.clone();
-        
-        // SAVE IMMEDIATELY - don't wait for API response
+
         self.settings.username = Some(username.clone());
         self.settings.password = Some(password.clone());
         debug_log!("credentials saved to settings before API call: username={} password={}", username, password);
@@ -345,20 +356,34 @@ impl TranslatorApp {
                 debug_log!("token saved, now saving again");
                 self.save_settings_now();
                 self.login_password.clear();
-                self.state = AppState::Ready;
-                self.status_message = "Logged in. Loading engines and languages...".to_string();
+                self.translation_state = TranslationState::Idle;
+                self.active_tab = Tab::Translate;
+                self.translate_status = "Logged in. Loading engines and languages...".to_string();
                 self.loading_engines = true;
             }
             Err(e) => {
-                self.status_message = format!("Login failed: {e}");
+                self.account_status = format!("Login failed: {e}");
             }
         }
     }
 
+    fn do_logout(&mut self) {
+        self.settings.auth_token = None;
+        self.settings.username = None;
+        self.settings.password = None;
+        self.engines.clear();
+        self.languages.clear();
+        self.translation_state = TranslationState::Idle;
+        self.active_tab = Tab::Account;
+        self.login_password.clear();
+        self.account_status = "Logged out.".to_string();
+        self.save_settings_now();
+    }
+
     fn write_result(&self) {
         if let (Some(path), Some(response)) = (&self.response_path, self.build_response()) {
-            debug_log!("write_result: status={} settings={{auth_token={:?}, username={:?}}}", 
-                response.status, response.settings.as_ref().and_then(|s| s.get("authToken")), 
+            debug_log!("write_result: status={} settings={{auth_token={:?}, username={:?}}}",
+                response.status, response.settings.as_ref().and_then(|s| s.get("authToken")),
                 response.settings.as_ref().and_then(|s| s.get("username")));
             let _ = crate::se_contract::write_response(&response, path);
         }
@@ -369,13 +394,13 @@ impl TranslatorApp {
     }
 
     fn build_response(&self) -> Option<SeResponse> {
-        match &self.state {
-            AppState::Done => {
+        match &self.translation_state {
+            TranslationState::Done => {
                 let translated = self.translated_srt.as_deref().unwrap_or("");
                 Some(SeResponse::ok(translated, &self.settings))
             }
-            AppState::Error => {
-                Some(SeResponse::error(&self.status_message, &self.settings))
+            TranslationState::Error => {
+                Some(SeResponse::error(&self.translate_status, &self.settings))
             }
             _ => Some(SeResponse::cancelled(&self.settings)),
         }
@@ -386,11 +411,11 @@ impl TranslatorApp {
             if let Some(tr) = res.take() {
                 if let Some(translated) = tr.translated {
                     self.translated_srt = Some(translated);
-                    self.state = AppState::Done;
-                    self.status_message.clear();
+                    self.translation_state = TranslationState::Done;
+                    self.translate_status.clear();
                 } else if let Some(err) = tr.error {
-                    self.state = AppState::Error;
-                    self.status_message = err;
+                    self.translation_state = TranslationState::Error;
+                    self.translate_status = err;
                 }
             }
         }
@@ -400,7 +425,7 @@ impl TranslatorApp {
         let request = match &self.se_request {
             Some(r) => r.clone(),
             None => {
-                self.status_message = "No subtitle loaded".to_string();
+                self.translate_status = "No subtitle loaded".to_string();
                 return;
             }
         };
@@ -408,7 +433,7 @@ impl TranslatorApp {
         let srt_content = match (&request.subtitle.sub_rip, &request.subtitle.native) {
             (Some(s), _) | (_, Some(s)) => s.clone(),
             _ => {
-                self.status_message = "No subtitle content".to_string();
+                self.translate_status = "No subtitle content".to_string();
                 return;
             }
         };
@@ -417,8 +442,8 @@ impl TranslatorApp {
         let detect_result = self.detect_result.clone();
 
         self.detecting_language = true;
-        self.state = AppState::Detecting;
-        self.status_message = "Detecting language...".to_string();
+        self.translation_state = TranslationState::Detecting;
+        self.translate_status = "Detecting language...".to_string();
         *detect_result.lock().unwrap() = None;
 
         std::thread::spawn(move || {
@@ -449,25 +474,25 @@ impl TranslatorApp {
                             .or_else(|| find_nearest_language_idx(&self.languages, &detected.iso_code))
                         {
                             self.selected_source_idx = idx;
-                            self.status_message = format!(
+                            self.translate_status = format!(
                                 "Detected: {}",
                                 self.languages.get(idx)
                                     .map(|l| format!("{} ({})", l.language_name, l.language_code))
                                     .unwrap_or_else(|| detected.language_name.clone())
                             );
                         } else {
-                            self.status_message = format!(
-                                "Detected: {} ({}) — no matching language in current engine",
+                            self.translate_status = format!(
+                                "Detected: {} ({}) -- no matching language in current engine",
                                 detected.language_name, detected.w3c_code
                             );
                         }
                     }
                     Err(e) => {
-                        self.status_message = format!("Detection failed: {e}");
+                        self.translate_status = format!("Detection failed: {e}");
                     }
                 }
                 self.detecting_language = false;
-                self.state = AppState::Ready;
+                self.translation_state = TranslationState::Idle;
             }
         }
     }
@@ -492,16 +517,16 @@ impl eframe::App for TranslatorApp {
 
         if !self.loading_engines && !self.loading_languages && self.selected_engine_idx != self.prev_engine_idx {
             self.loading_languages = true;
-            self.status_message = "Loading languages...".to_string();
+            self.translate_status = "Loading languages...".to_string();
             ctx.request_repaint();
         }
 
-        if matches!(self.state, AppState::Translating) {
+        if matches!(self.translation_state, TranslationState::Translating) {
             self.check_thread_result();
             ctx.request_repaint();
         }
 
-        if matches!(self.state, AppState::Detecting) {
+        if matches!(self.translation_state, TranslationState::Detecting) {
             self.check_detect_result();
             ctx.request_repaint();
         }
@@ -519,41 +544,20 @@ impl eframe::App for TranslatorApp {
                 );
                 ui.add_space(4.0);
 
-                if !self.status_message.is_empty() && !matches!(self.state, AppState::Translating) {
-                    ui.colored_label(egui::Color32::from_rgb(255, 200, 100), &self.status_message);
+                if !self.settings.has_credentials() {
+                    self.draw_login_screen(ui);
+                } else {
+                    self.draw_tab_bar(ui);
                     ui.add_space(4.0);
+                    match self.active_tab {
+                        Tab::Translate => self.draw_translate_tab(ui, ctx.clone()),
+                        Tab::AiModels => self.draw_ai_models_tab(ui),
+                        Tab::Settings => self.draw_settings_tab(ui),
+                        Tab::Account => self.draw_account_tab(ui),
+                        Tab::Credits => self.draw_credits_tab(ui),
+                    }
                 }
 
-                match self.state {
-                    AppState::Setup => {
-                        self.draw_setup(ui);
-                    }
-                    AppState::Ready => {
-                        self.draw_translation(ui, ctx.clone());
-                    }
-                    AppState::Detecting => {
-                        ui.spinner();
-                        ui.label(&self.status_message);
-                    }
-                    AppState::Translating => {
-                        self.draw_progress(ui);
-                    }
-                    AppState::Done => {
-                        ui.colored_label(egui::Color32::GREEN, "Translation complete!");
-                        if ui.button("OK").clicked() {
-                            self.write_result();
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                    }
-                    AppState::Error => {
-                        ui.colored_label(egui::Color32::RED, &self.status_message);
-                        ui.add_space(8.0);
-                        if ui.button("Close").clicked() {
-                            self.write_result();
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                    }
-                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                     ui.label(egui::RichText::new(concat!("v", env!("CARGO_PKG_VERSION"))).small().color(egui::Color32::GRAY));
                 });
@@ -572,17 +576,10 @@ impl TranslatorApp {
         }
     }
 
-    fn draw_setup(&mut self, ui: &mut egui::Ui) {
-        if self.came_from_ready {
-            if ui.button("← Back").clicked() {
-                self.state = AppState::Ready;
-                self.status_message.clear();
-            }
-            ui.add_space(8.0);
-        }
-
+    fn draw_login_screen(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.heading("Login");
+            ui.add_space(4.0);
             ui.add(
                 egui::TextEdit::singleline(&mut self.login_username)
                     .hint_text("Username")
@@ -598,10 +595,75 @@ impl TranslatorApp {
             if ui.button("Login").clicked() {
                 self.do_login();
             }
+            if !self.account_status.is_empty() {
+                ui.add_space(4.0);
+                ui.colored_label(egui::Color32::from_rgb(255, 200, 100), &self.account_status);
+            }
         });
     }
 
-    fn draw_translation(&mut self, ui: &mut egui::Ui, ctx: egui::Context) {
+    fn draw_tab_bar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            let tabs = [
+                (Tab::Translate, "Translate"),
+                (Tab::AiModels, "AI Models"),
+                (Tab::Settings, "Settings"),
+                (Tab::Account, "Account"),
+                (Tab::Credits, "Credits"),
+            ];
+            for (tab, label) in tabs {
+                if ui.selectable_label(self.active_tab == tab, label).clicked() {
+                    self.active_tab = tab;
+                }
+            }
+        });
+        ui.separator();
+    }
+
+    fn draw_translate_tab(&mut self, ui: &mut egui::Ui, ctx: egui::Context) {
+        if !self.translate_status.is_empty() {
+            match &self.translation_state {
+                TranslationState::Error => {
+                    ui.colored_label(egui::Color32::RED, &self.translate_status);
+                }
+                TranslationState::Detecting => {
+                    ui.spinner();
+                    ui.label(&self.translate_status);
+                }
+                _ => {
+                    ui.colored_label(egui::Color32::from_rgb(255, 200, 100), &self.translate_status);
+                }
+            }
+            ui.add_space(4.0);
+        }
+
+        match &self.translation_state {
+            TranslationState::Idle | TranslationState::Detecting => {
+                self.draw_translation_controls(ui, ctx);
+            }
+            TranslationState::Translating => {
+                self.draw_translation_controls(ui, ctx.clone());
+                ui.add_space(8.0);
+                self.draw_progress(ui);
+            }
+            TranslationState::Done => {
+                ui.colored_label(egui::Color32::GREEN, "Translation complete!");
+                ui.add_space(8.0);
+                if ui.button("OK").clicked() {
+                    self.write_result();
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+            TranslationState::Error => {
+                if ui.button("Close").clicked() {
+                    self.write_result();
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+        }
+    }
+
+    fn draw_translation_controls(&mut self, ui: &mut egui::Ui, ctx: egui::Context) {
         if self.engines.is_empty() {
             ui.label("No translation engines available.");
             return;
@@ -665,36 +727,92 @@ impl TranslatorApp {
 
             ui.add_space(8.0);
 
-            ui.horizontal(|ui| {
-                if ui.button("Translate").clicked() {
-                    self.start_translation(ctx.clone());
-                }
-                if ui.button("Settings").clicked() {
-                    self.came_from_ready = true;
-                    self.state = AppState::Setup;
-                }
-            });
+            if ui.button("Translate").clicked() {
+                self.start_translation(ctx.clone());
+            }
         });
     }
 
     fn draw_progress(&mut self, ui: &mut egui::Ui) {
         let current_progress = *self.progress.lock().unwrap_or_else(|e| e.into_inner());
 
-        ui.add_space(16.0);
-        ui.label(&self.status_message);
-        ui.add_space(8.0);
         ui.add(
             egui::ProgressBar::new(current_progress)
                 .show_percentage()
                 .animate(true),
         );
 
-        ui.add_space(8.0);
+        ui.add_space(4.0);
         if ui.button("Cancel").clicked() {
             self.cancel_flag.store(true, Ordering::Relaxed);
-            self.state = AppState::Error;
-            self.status_message = "Translation cancelled.".to_string();
+            self.translation_state = TranslationState::Error;
+            self.translate_status = "Translation cancelled.".to_string();
         }
+    }
+
+    fn draw_account_tab(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.heading("Account");
+            ui.add_space(4.0);
+
+            if let Some(ref username) = self.settings.username {
+                ui.label(format!("Logged in as: {username}"));
+                ui.add_space(8.0);
+            }
+
+            ui.add(
+                egui::TextEdit::singleline(&mut self.login_username)
+                    .hint_text("Username")
+                    .desired_width(300.0),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut self.login_password)
+                    .hint_text("Password")
+                    .password(true)
+                    .desired_width(300.0),
+            );
+            ui.add_space(4.0);
+
+            let is_logged_in = self.settings.auth_token.is_some();
+            let login_label = if is_logged_in { "Update" } else { "Login" };
+            if ui.button(login_label).clicked() {
+                self.do_login();
+            }
+            if is_logged_in {
+                if ui.button("Logout").clicked() {
+                    self.do_logout();
+                }
+            }
+
+            if !self.account_status.is_empty() {
+                ui.add_space(4.0);
+                ui.colored_label(egui::Color32::from_rgb(255, 200, 100), &self.account_status);
+            }
+        });
+    }
+
+    fn draw_ai_models_tab(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.heading("AI Models");
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("Coming soon").color(egui::Color32::GRAY));
+        });
+    }
+
+    fn draw_settings_tab(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.heading("Settings");
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("Coming soon").color(egui::Color32::GRAY));
+        });
+    }
+
+    fn draw_credits_tab(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.heading("Credits");
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("Coming soon").color(egui::Color32::GRAY));
+        });
     }
 }
 

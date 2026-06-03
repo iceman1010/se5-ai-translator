@@ -125,13 +125,19 @@ impl SeResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct PluginSettings {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_source_lang: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_target_lang: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_engine: Option<String>,
 }
 
