@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::api::LanguageInfo;
 use crate::ui::translate::{DetectResult, ThreadResult};
-use crate::ui::update::{UpdateCheckResult, UpdateState};
+use crate::ui::update::{UpdateCheckResult, UpdateDownloadResult, UpdateState};
 
 mod account;
 mod ai_models;
@@ -67,6 +67,7 @@ pub struct TranslatorApp {
 
     pub update_state: UpdateState,
     pub update_check_result: UpdateCheckResult,
+    pub update_download_result: UpdateDownloadResult,
     pub show_update_dialog: bool,
 
     logo_texture: Option<egui::TextureHandle>,
@@ -133,6 +134,7 @@ impl TranslatorApp {
             detect_result: Arc::new(Mutex::new(None)),
             update_state: UpdateState::Idle,
             update_check_result: Arc::new(Mutex::new(None)),
+            update_download_result: Arc::new(Mutex::new(None)),
             show_update_dialog: false,
             logo_texture,
         }
@@ -252,6 +254,11 @@ impl eframe::App for TranslatorApp {
 
         if matches!(self.update_state, UpdateState::Checking) {
             self.process_update_result();
+            ctx.request_repaint();
+        }
+
+        if matches!(self.update_state, UpdateState::Downloading { .. }) {
+            self.process_download_result();
             ctx.request_repaint();
         }
 
