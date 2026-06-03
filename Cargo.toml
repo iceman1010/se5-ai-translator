@@ -4,6 +4,7 @@ version = "0.2.2"
 edition = "2024"
 description = "SubtitleEdit 5 plugin for AI subtitle translation via OpenSubtitles API"
 authors = ["AI.OpenSubtitles.com"]
+repository = "https://github.com/iceman1010/se5-ai-translator"
 
 [dependencies]
 eframe = "0.31"
@@ -15,6 +16,7 @@ tokio = { version = "1", features = ["rt", "time"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
 env_logger = "0.11"
+open = "5.3.5"
 
 [profile.release]
 opt-level = "s"
