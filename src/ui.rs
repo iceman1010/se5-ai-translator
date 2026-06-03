@@ -82,7 +82,7 @@ impl TranslatorApp {
         fonts.font_data.insert(
             "my_font".to_owned(),
             Arc::new(egui::FontData::from_static(include_bytes!(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+                "../assets/DejaVuSans.ttf"
             ))),
         );
         fonts
