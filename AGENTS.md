@@ -53,15 +53,18 @@ cargo build --release  # Release binary (LTO+strip, ~10MB, takes ~7min)
 
 Binary output: `target/release/se-ai-translator`
 
-## Cross-Compilation Targets
+## Cross-Compilation & CI/CD
 
-Not yet configured. Needed: `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`, `x86_64-apple-darwin`, `aarch64-apple-darwin`.
+Cross-platform releases are automated via GitHub Actions. See [`docs/ci-cd.md`](docs/ci-cd.md) for the full pipeline details.
+
+Targets: `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`, `x86_64-apple-darwin`, `aarch64-apple-darwin`.
 
 ## Testing
 
-Create a test `request.json` matching the SE5 contract schema and run:
+Interactive test script with optional dev mode:
 ```bash
-./target/release/se-ai-translator /path/to/test_request.json
+bash tests/run_test.sh --dev gui     # Dev build (fast)
+bash tests/run_test.sh gui           # Release build
 ```
 
 ## Files
