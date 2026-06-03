@@ -22,7 +22,13 @@ src/
   main.rs           # Entry: parse CLI arg → launch eframe window
   se_contract.rs    # SE5 JSON types (SeRequest, SeResponse, PluginSettings) + read/write helpers
   api.rs            # OpenSubtitles API client (login, translate, poll, fetch engines/languages)
-  ui.rs             # egui app (TranslatorApp) — states: Setup → Ready → Translating → Done/Error
+  ui/
+    mod.rs          # TranslatorApp struct, eframe::App impl, tab dispatch, shared state
+    translate.rs    # Translate tab (controls, progress, detection, background threads)
+    account.rs      # Account tab (login/logout, pre-login screen)
+    update.rs       # Update check logic + Settings tab (version check, update dialog)
+    ai_models.rs    # AI Models tab (placeholder)
+    credits.rs      # Credits tab (placeholder)
 ```
 
 ## API Endpoints (OpenSubtitles)
