@@ -1,3 +1,6 @@
+/.opencode
 /target
 .env
 *.env
+AGENTS.md
+se-ai-translator
