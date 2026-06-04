@@ -75,6 +75,44 @@ pub struct TranslatorApp {
 }
 
 impl TranslatorApp {
+    fn apply_theme(ctx: &egui::Context) {
+        let mut style = (*ctx.style()).clone();
+        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        style.spacing.button_padding = egui::vec2(12.0, 6.0);
+        style.spacing.indent = 18.0;
+        style.visuals.button_frame = true;
+        style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(
+            1.0,
+            egui::Color32::from_rgb(50, 55, 70),
+        );
+        ctx.set_style(style);
+
+        let mut theme = egui::Visuals::dark();
+        theme.panel_fill = egui::Color32::from_rgb(24, 26, 34);
+        theme.window_fill = egui::Color32::from_rgb(30, 32, 42);
+        theme.extreme_bg_color = egui::Color32::from_rgb(18, 20, 28);
+        theme.faint_bg_color = egui::Color32::from_rgb(30, 33, 44);
+        theme.hyperlink_color = egui::Color32::from_rgb(90, 142, 242);
+        theme.selection.bg_fill = egui::Color32::from_rgb(50, 90, 160);
+
+        theme.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(180));
+        theme.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(30, 33, 44);
+
+        theme.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
+        theme.widgets.hovered.bg_fill = egui::Color32::from_rgb(50, 55, 75);
+        theme.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 142, 242));
+
+        theme.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
+        theme.widgets.active.bg_fill = egui::Color32::from_rgb(55, 60, 82);
+        theme.widgets.active.bg_stroke = egui::Stroke::new(1.5, egui::Color32::from_rgb(90, 142, 242));
+
+        theme.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(180));
+        theme.widgets.inactive.bg_fill = egui::Color32::from_rgb(35, 38, 50);
+        theme.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 55, 70));
+
+        ctx.set_visuals(theme);
+    }
+
     pub fn new(cc: &eframe::CreationContext<'_>, settings: PluginSettings) -> Self {
         let mut fonts = egui::FontDefinitions::default();
         fonts.font_data.insert(
@@ -90,6 +128,7 @@ impl TranslatorApp {
             .insert(0, "my_font".to_owned());
 
         cc.egui_ctx.set_fonts(fonts);
+        Self::apply_theme(&cc.egui_ctx);
 
         let logo_texture = {
             let image = image::load_from_memory(ICON_PNG)
@@ -203,21 +242,66 @@ impl TranslatorApp {
     }
 
     fn draw_tab_bar(&mut self, ui: &mut egui::Ui) {
+        let tab_accent = egui::Color32::from_rgb(90, 142, 242);
+        let tab_bg_active = egui::Color32::from_rgb(50, 60, 80);
+        let tab_border = egui::Color32::from_rgb(60, 66, 80);
+
+        let tabs = [
+            (Tab::Translate, "Translate"),
+            (Tab::AiModels, "AI Models"),
+            (Tab::Settings, "Settings"),
+            (Tab::Account, "Account"),
+            (Tab::Credits, "Credits"),
+        ];
+
         ui.horizontal(|ui| {
-            let tabs = [
-                (Tab::Translate, "Translate"),
-                (Tab::AiModels, "AI Models"),
-                (Tab::Settings, "Settings"),
-                (Tab::Account, "Account"),
-                (Tab::Credits, "Credits"),
-            ];
+            ui.add_space(4.0);
             for (tab, label) in tabs {
-                if ui.selectable_label(self.active_tab == tab, label).clicked() {
+                let is_active = self.active_tab == tab;
+
+                let frame = egui::Frame::group(ui.style())
+                    .inner_margin(egui::Margin::symmetric(10, 5))
+                    .corner_radius(6.0)
+                    .stroke(egui::Stroke::new(
+                        if is_active { 1.5 } else { 0.0 },
+                        if is_active { tab_accent } else { tab_border },
+                    ))
+                    .fill(if is_active { tab_bg_active } else { egui::Color32::TRANSPARENT });
+
+                let resp = frame.show(ui, |ui| {
+                    let text = egui::RichText::new(label).color(if is_active {
+                        tab_accent
+                    } else {
+                        egui::Color32::from_gray(180)
+                    });
+                    let label = if is_active {
+                        egui::Label::new(text.strong())
+                    } else {
+                        egui::Label::new(text)
+                    };
+                    ui.add(label.sense(egui::Sense::click()))
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                });
+
+                if resp.inner.clicked() {
                     self.active_tab = tab;
                 }
+
+                ui.add_space(3.0);
             }
         });
-        ui.separator();
+
+        ui.add_space(4.0);
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+        ui.painter().line_segment(
+            [
+                egui::pos2(rect.left(), rect.center().y),
+                egui::pos2(rect.right(), rect.center().y),
+            ],
+            egui::Stroke::new(1.0, tab_border),
+        );
+        ui.add_space(6.0);
     }
 }
 

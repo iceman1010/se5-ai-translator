@@ -279,7 +279,7 @@ impl TranslatorApp {
                 match outcome {
                     Ok(()) => {
                         self.update_state = UpdateState::Downloaded;
-                        self.show_update_dialog = false;
+                        self.show_update_dialog = true;
                     }
                     Err(e) => {
                         self.update_state = UpdateState::Error(e);
@@ -320,9 +320,9 @@ impl TranslatorApp {
                     );
                 }
                 UpdateState::Downloaded => {
-                    ui.label(egui::RichText::new("Update installed! Restart to apply.").color(egui::Color32::GREEN));
+                    ui.label(egui::RichText::new("Update installed! Close to apply.").color(egui::Color32::GREEN));
                     ui.add_space(4.0);
-                    if ui.button("Close").clicked() {
+                    if ui.button("Dismiss").clicked() {
                         self.update_state = UpdateState::Idle;
                     }
                 }
@@ -360,9 +360,44 @@ impl TranslatorApp {
     }
 
     pub fn draw_update_dialog(&mut self, ctx: &egui::Context) {
-        let (latest_version, download_url) = match &self.update_state {
+        match &self.update_state {
             UpdateState::UpdateAvailable { latest_version, download_url } => {
-                (latest_version.clone(), download_url.clone())
+                let latest_version = latest_version.clone();
+                let download_url = download_url.clone();
+                let current = env!("CARGO_PKG_VERSION").to_string();
+                let title = format!("Update Available - v{latest_version}");
+
+                egui::Window::new(&title)
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .show(ctx, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.label("A new version is available!");
+                            ui.add_space(8.0);
+                            ui.label(format!("Current: v{current}"));
+                            ui.label(format!("Latest:  v{latest_version}"));
+                            ui.add_space(12.0);
+                            ui.label("The plugin will update and restart.");
+                            ui.add_space(12.0);
+
+                            let mut do_update = false;
+                            ui.horizontal(|ui| {
+                                if ui.button("Update Now").clicked() {
+                                    do_update = true;
+                                }
+                                if ui.button("Cancel").clicked() {
+                                    self.show_update_dialog = false;
+                                }
+                            });
+
+                            if do_update {
+                                self.start_self_update(ctx.clone());
+                            }
+
+                            let _ = download_url;
+                        });
+                    });
             }
             UpdateState::Downloading => {
                 let progress = self.update_progress.lock()
@@ -383,47 +418,38 @@ impl TranslatorApp {
                             );
                         });
                     });
-                return;
+            }
+            UpdateState::Downloaded => {
+                egui::Window::new("Update Complete")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .show(ctx, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                egui::RichText::new("Update installed successfully!")
+                                    .color(egui::Color32::GREEN),
+                            );
+                            ui.add_space(8.0);
+                            ui.label("The new version will be active on next launch.");
+                            ui.add_space(12.0);
+
+                            ui.horizontal(|ui| {
+                                if ui.button("Close & Restart").clicked() {
+                                    self.show_update_dialog = false;
+                                    self.update_state = UpdateState::Idle;
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                }
+                                if ui.button("Later").clicked() {
+                                    self.show_update_dialog = false;
+                                }
+                            });
+                        });
+                    });
             }
             _ => {
                 self.show_update_dialog = false;
-                return;
             }
-        };
-
-        let current = env!("CARGO_PKG_VERSION").to_string();
-        let title = format!("Update Available - v{latest_version}");
-
-        egui::Window::new(&title)
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.label("A new version is available!");
-                    ui.add_space(8.0);
-                    ui.label(format!("Current: v{current}"));
-                    ui.label(format!("Latest:  v{latest_version}"));
-                    ui.add_space(12.0);
-                    ui.label("The plugin will update and restart.");
-                    ui.add_space(12.0);
-
-                    let mut do_update = false;
-                    ui.horizontal(|ui| {
-                        if ui.button("Update Now").clicked() {
-                            do_update = true;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            self.show_update_dialog = false;
-                        }
-                    });
-
-                    if do_update {
-                        self.start_self_update(ctx.clone());
-                    }
-
-                    let _ = download_url;
-                });
-            });
+        }
     }
 }
