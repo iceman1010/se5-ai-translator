@@ -27,6 +27,14 @@ pub enum Tab {
     Credits,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum CreditsLoadState {
+    Idle,
+    Loading,
+    Loaded,
+    Error,
+}
+
 pub struct Toast {
     pub message: String,
     pub color: egui::Color32,
@@ -80,6 +88,11 @@ pub struct TranslatorApp {
     pub update_download_result: UpdateDownloadResult,
     pub update_progress: Arc<Mutex<f32>>,
     pub show_update_dialog: bool,
+
+    pub credits_balance: Option<f64>,
+    pub credits_packages: Vec<crate::api::CreditPackage>,
+    pub credits_state: CreditsLoadState,
+    pub credits_error: String,
 
     pub toasts: Vec<Toast>,
 
@@ -190,6 +203,10 @@ impl TranslatorApp {
             update_download_result: Arc::new(Mutex::new(None)),
             update_progress: Arc::new(Mutex::new(0.0)),
             show_update_dialog: false,
+            credits_balance: None,
+            credits_packages: Vec::new(),
+            credits_state: CreditsLoadState::Idle,
+            credits_error: String::new(),
             toasts: Vec::new(),
             logo_texture,
         }
@@ -438,6 +455,20 @@ impl eframe::App for TranslatorApp {
 
         if matches!(self.update_state, UpdateState::Downloading) {
             self.process_download_result();
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+
+        // Auto-fetch credits when user opens the Credits tab for the first time
+        // (or after a previous error). Subsequent refreshes are user-driven.
+        if self.active_tab == Tab::Credits
+            && self.settings.has_credentials()
+            && matches!(self.credits_state, CreditsLoadState::Idle)
+        {
+            self.refresh_credits();
+            ctx.request_repaint();
+        }
+
+        if matches!(self.credits_state, CreditsLoadState::Loading) {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 

@@ -387,9 +387,12 @@ impl TranslatorApp {
                                 ui.selectable_value(&mut self.selected_source_idx, i, name);
                             }
                         });
-                    if ui.button("Detect").clicked() {
-                        self.start_detect(ctx.clone());
-                    }
+                    ui.vertical(|ui| {
+                        ui.add_space(2.0);
+                        if ui.button("Detect").clicked() {
+                            self.start_detect(ctx.clone());
+                        }
+                    });
                     ui.end_row();
 
                     // Row: Target
