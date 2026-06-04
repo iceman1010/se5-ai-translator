@@ -4,6 +4,28 @@ use std::sync::{Arc, Mutex};
 
 use super::TranslatorApp;
 
+pub fn ui_style_for_modal(ctx: &egui::Context) -> egui::Style {
+    let mut style = (*ctx.style()).clone();
+    style.spacing.window_margin = egui::Margin::symmetric(20, 16);
+    style
+}
+
+pub fn paint_backdrop(ctx: &egui::Context) {
+    let screen_rect = ctx.screen_rect();
+    egui::Area::new(egui::Id::new("modal_backdrop"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(screen_rect.left_top())
+        .interactable(true)
+        .show(ctx, |ui| {
+            ui.painter().rect_filled(
+                screen_rect,
+                0.0,
+                egui::Color32::from_black_alpha(140),
+            );
+            ui.allocate_rect(screen_rect, egui::Sense::click());
+        });
+}
+
 pub enum UpdateState {
     Idle,
     Checking,
@@ -362,90 +384,153 @@ impl TranslatorApp {
     pub fn draw_update_dialog(&mut self, ctx: &egui::Context) {
         match &self.update_state {
             UpdateState::UpdateAvailable { latest_version, download_url } => {
+                paint_backdrop(ctx);
+
                 let latest_version = latest_version.clone();
                 let download_url = download_url.clone();
                 let current = env!("CARGO_PKG_VERSION").to_string();
-                let title = format!("Update Available - v{latest_version}");
+                let title = format!("Update Available — v{latest_version}");
+
+                let mut do_update = false;
+                let mut do_cancel = false;
 
                 egui::Window::new(&title)
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .frame(
+                        egui::Frame::window(&ui_style_for_modal(ctx))
+                            .corner_radius(10.0)
+                            .shadow(egui::epaint::Shadow {
+                                offset: [0, 4],
+                                blur: 24,
+                                spread: 4,
+                                color: egui::Color32::from_black_alpha(120),
+                            }),
+                    )
                     .show(ctx, |ui| {
+                        ui.add_space(4.0);
                         ui.vertical_centered(|ui| {
-                            ui.label("A new version is available!");
-                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new("A new version is available!")
+                                    .color(egui::Color32::from_rgb(90, 142, 242))
+                                    .strong(),
+                            );
+                            ui.add_space(10.0);
                             ui.label(format!("Current: v{current}"));
                             ui.label(format!("Latest:  v{latest_version}"));
-                            ui.add_space(12.0);
+                            ui.add_space(10.0);
                             ui.label("The plugin will update and restart.");
-                            ui.add_space(12.0);
+                            ui.add_space(14.0);
+                        });
 
-                            let mut do_update = false;
-                            ui.horizontal(|ui| {
-                                if ui.button("Update Now").clicked() {
-                                    do_update = true;
-                                }
-                                if ui.button("Cancel").clicked() {
-                                    self.show_update_dialog = false;
-                                }
-                            });
-
-                            if do_update {
-                                self.start_self_update(ctx.clone());
+                        ui.horizontal(|ui| {
+                            if ui.button("Update Now").clicked() {
+                                do_update = true;
                             }
-
-                            let _ = download_url;
+                            if ui.button("Cancel").clicked() {
+                                do_cancel = true;
+                            }
                         });
                     });
+
+                if do_update {
+                    self.start_self_update(ctx.clone());
+                }
+                if do_cancel {
+                    self.show_update_dialog = false;
+                }
+                let _ = download_url;
             }
             UpdateState::Downloading => {
+                paint_backdrop(ctx);
+
                 let progress = self.update_progress.lock()
                     .map(|p| *p)
                     .unwrap_or(0.0);
+
                 egui::Window::new("Updating...")
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .frame(
+                        egui::Frame::window(&ui_style_for_modal(ctx))
+                            .corner_radius(10.0)
+                            .shadow(egui::epaint::Shadow {
+                                offset: [0, 4],
+                                blur: 24,
+                                spread: 4,
+                                color: egui::Color32::from_black_alpha(120),
+                            }),
+                    )
                     .show(ctx, |ui| {
+                        ui.add_space(4.0);
                         ui.vertical_centered(|ui| {
-                            ui.label("Downloading and installing update...");
-                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new("Downloading and installing update...")
+                                    .color(egui::Color32::from_gray(200)),
+                            );
+                            ui.add_space(12.0);
                             ui.add(
                                 egui::ProgressBar::new(progress)
                                     .show_percentage()
                                     .animate(true),
                             );
+                            ui.add_space(4.0);
                         });
                     });
             }
             UpdateState::Downloaded => {
+                paint_backdrop(ctx);
+
+                let mut do_restart = false;
+                let mut do_later = false;
+
                 egui::Window::new("Update Complete")
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .frame(
+                        egui::Frame::window(&ui_style_for_modal(ctx))
+                            .corner_radius(10.0)
+                            .shadow(egui::epaint::Shadow {
+                                offset: [0, 4],
+                                blur: 24,
+                                spread: 4,
+                                color: egui::Color32::from_black_alpha(120),
+                            }),
+                    )
                     .show(ctx, |ui| {
+                        ui.add_space(4.0);
                         ui.vertical_centered(|ui| {
                             ui.label(
                                 egui::RichText::new("Update installed successfully!")
-                                    .color(egui::Color32::GREEN),
+                                    .color(egui::Color32::from_rgb(100, 200, 100))
+                                    .strong(),
                             );
                             ui.add_space(8.0);
                             ui.label("The new version will be active on next launch.");
-                            ui.add_space(12.0);
+                            ui.add_space(14.0);
+                        });
 
-                            ui.horizontal(|ui| {
-                                if ui.button("Close & Restart").clicked() {
-                                    self.show_update_dialog = false;
-                                    self.update_state = UpdateState::Idle;
-                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                                }
-                                if ui.button("Later").clicked() {
-                                    self.show_update_dialog = false;
-                                }
-                            });
+                        ui.horizontal(|ui| {
+                            if ui.button("Close & Restart").clicked() {
+                                do_restart = true;
+                            }
+                            if ui.button("Later").clicked() {
+                                do_later = true;
+                            }
                         });
                     });
+
+                if do_restart {
+                    self.show_update_dialog = false;
+                    self.update_state = UpdateState::Idle;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                if do_later {
+                    self.show_update_dialog = false;
+                }
             }
             _ => {
                 self.show_update_dialog = false;

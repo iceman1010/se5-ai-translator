@@ -227,6 +227,7 @@ impl TranslatorApp {
         self.detecting_language = true;
         self.translation_state = super::TranslationState::Detecting;
         self.translate_status = "Detecting language...".to_string();
+        self.detect_start_time = Some(std::time::Instant::now());
         *detect_result.lock().unwrap() = None;
 
         std::thread::spawn(move || {
@@ -249,54 +250,51 @@ impl TranslatorApp {
     }
 
     pub fn check_detect_result(&mut self) {
-        if let Ok(mut res) = self.detect_result.lock() {
-            if let Some(result) = res.take() {
-                match result {
-                    Ok(detected) => {
-                        if let Some(idx) = find_nearest_language_idx(&self.languages, &detected.w3c_code)
-                            .or_else(|| find_nearest_language_idx(&self.languages, &detected.iso_code))
-                        {
-                            self.selected_source_idx = idx;
-                            self.translate_status = format!(
-                                "Detected: {}",
-                                self.languages.get(idx)
-                                    .map(|l| format!("{} ({})", l.language_name, l.language_code))
-                                    .unwrap_or_else(|| detected.language_name.clone())
-                            );
-                        } else {
-                            self.translate_status = format!(
-                                "Detected: {} ({}) -- no matching language in current engine",
-                                detected.language_name, detected.w3c_code
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        self.translate_status = format!("Detection failed: {e}");
+        if let Some(start) = self.detect_start_time {
+            if start.elapsed() < std::time::Duration::from_millis(1500) {
+                return;
+            }
+        }
+
+        let result = if let Ok(mut res) = self.detect_result.lock() {
+            res.take()
+        } else {
+            None
+        };
+
+        if let Some(result) = result {
+            match result {
+                Ok(detected) => {
+                    if let Some(idx) = find_nearest_language_idx(&self.languages, &detected.w3c_code)
+                        .or_else(|| find_nearest_language_idx(&self.languages, &detected.iso_code))
+                    {
+                        self.selected_source_idx = idx;
+                        let msg = format!(
+                            "Detected: {}",
+                            self.languages.get(idx)
+                                .map(|l| format!("{} ({})", l.language_name, l.language_code))
+                                .unwrap_or_else(|| detected.language_name.clone())
+                        );
+                        self.toast(msg, egui::Color32::from_rgb(100, 200, 100));
+                    } else {
+                        let msg = format!(
+                            "Detected: {} ({}) — no matching language in current engine",
+                            detected.language_name, detected.w3c_code
+                        );
+                        self.toast(msg, egui::Color32::from_rgb(255, 180, 60));
                     }
                 }
-                self.detecting_language = false;
-                self.translation_state = super::TranslationState::Idle;
+                Err(e) => {
+                    self.toast(format!("Detection failed: {e}"), egui::Color32::from_rgb(220, 80, 80));
+                }
             }
+            self.detecting_language = false;
+            self.detect_start_time = None;
+            self.translation_state = super::TranslationState::Idle;
         }
     }
 
     pub fn draw_translate_tab(&mut self, ui: &mut egui::Ui, ctx: egui::Context) {
-        if !self.translate_status.is_empty() {
-            match &self.translation_state {
-                super::TranslationState::Error => {
-                    ui.colored_label(egui::Color32::RED, &self.translate_status);
-                }
-                super::TranslationState::Detecting => {
-                    ui.spinner();
-                    ui.label(&self.translate_status);
-                }
-                _ => {
-                    ui.colored_label(egui::Color32::from_rgb(255, 200, 100), &self.translate_status);
-                }
-            }
-            ui.add_space(4.0);
-        }
-
         match &self.translation_state {
             super::TranslationState::Idle | super::TranslationState::Detecting => {
                 self.draw_translation_controls(ui, ctx);
@@ -404,6 +402,53 @@ impl TranslatorApp {
             self.cancel_flag.store(true, Ordering::Relaxed);
             self.translation_state = super::TranslationState::Error;
             self.translate_status = "Translation cancelled.".to_string();
+        }
+    }
+
+    pub fn draw_detect_dialog(&mut self, ctx: &egui::Context) {
+        super::update::paint_backdrop(ctx);
+
+        let mut do_cancel = false;
+
+        egui::Window::new("Detecting Language")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .frame(
+                egui::Frame::window(&super::update::ui_style_for_modal(ctx))
+                    .corner_radius(10.0)
+                    .shadow(egui::epaint::Shadow {
+                        offset: [0, 4],
+                        blur: 24,
+                        spread: 4,
+                        color: egui::Color32::from_black_alpha(120),
+                    }),
+            )
+            .show(ctx, |ui| {
+                ui.add_space(4.0);
+                ui.vertical_centered(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(
+                            egui::RichText::new("Analyzing subtitle content...")
+                                .color(egui::Color32::from_gray(200)),
+                        );
+                    });
+                    ui.add_space(14.0);
+                });
+
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        do_cancel = true;
+                    }
+                });
+            });
+
+        if do_cancel {
+            self.detecting_language = false;
+            self.detect_start_time = None;
+            self.translation_state = super::TranslationState::Idle;
+            self.toast("Language detection cancelled.", egui::Color32::from_gray(180));
         }
     }
 }

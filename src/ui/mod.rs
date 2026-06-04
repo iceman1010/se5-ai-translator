@@ -27,6 +27,15 @@ pub enum Tab {
     Credits,
 }
 
+pub struct Toast {
+    pub message: String,
+    pub color: egui::Color32,
+    pub created_at: std::time::Instant,
+}
+
+const TOAST_DURATION: std::time::Duration = std::time::Duration::from_secs(4);
+const TOAST_FADE: std::time::Duration = std::time::Duration::from_millis(500);
+
 pub enum TranslationState {
     Idle,
     Translating,
@@ -64,12 +73,15 @@ pub struct TranslatorApp {
     pub loading_languages: bool,
     pub detecting_language: bool,
     pub detect_result: Arc<Mutex<Option<Result<DetectResult, String>>>>,
+    pub detect_start_time: Option<std::time::Instant>,
 
     pub update_state: UpdateState,
     pub update_check_result: UpdateCheckResult,
     pub update_download_result: UpdateDownloadResult,
     pub update_progress: Arc<Mutex<f32>>,
     pub show_update_dialog: bool,
+
+    pub toasts: Vec<Toast>,
 
     logo_texture: Option<egui::TextureHandle>,
 }
@@ -172,11 +184,13 @@ impl TranslatorApp {
             loading_languages: false,
             detecting_language: false,
             detect_result: Arc::new(Mutex::new(None)),
+            detect_start_time: None,
             update_state: UpdateState::Idle,
             update_check_result: Arc::new(Mutex::new(None)),
             update_download_result: Arc::new(Mutex::new(None)),
             update_progress: Arc::new(Mutex::new(0.0)),
             show_update_dialog: false,
+            toasts: Vec::new(),
             logo_texture,
         }
     }
@@ -231,6 +245,82 @@ impl TranslatorApp {
                 Some(SeResponse::error(&self.translate_status, &self.settings))
             }
             _ => Some(SeResponse::cancelled(&self.settings)),
+        }
+    }
+
+    pub fn toast(&mut self, message: impl Into<String>, color: egui::Color32) {
+        self.toasts.push(Toast {
+            message: message.into(),
+            color,
+            created_at: std::time::Instant::now(),
+        });
+    }
+
+    pub fn draw_toasts(&mut self, ctx: &egui::Context) {
+        let now = std::time::Instant::now();
+        self.toasts.retain(|t| now.duration_since(t.created_at) < TOAST_DURATION);
+
+        if self.toasts.is_empty() {
+            return;
+        }
+
+        let screen = ctx.screen_rect();
+        let mut y = screen.bottom() - 20.0;
+
+        for toast in &self.toasts {
+            let elapsed = now.duration_since(toast.created_at);
+            let remaining = TOAST_DURATION - elapsed;
+            let alpha = if remaining < TOAST_FADE {
+                (remaining.as_millis() as f32 / TOAST_FADE.as_millis() as f32 * 255.0) as u8
+            } else {
+                255
+            };
+
+            let galley = ctx.fonts(|f| f.layout_no_wrap(
+                toast.message.clone(),
+                egui::FontId::proportional(13.0),
+                egui::Color32::WHITE,
+            ));
+            let text_width = galley.size().x;
+            let pad_x = 16.0_f32;
+            let pad_y = 8.0_f32;
+            let total_w = text_width + pad_x * 2.0;
+            let total_h = galley.size().y + pad_y * 2.0;
+            y -= total_h + 6.0;
+
+            let pos = egui::pos2(
+                screen.center().x - total_w / 2.0,
+                y,
+            );
+
+            let bg_color = egui::Color32::from_rgba_premultiplied(30, 32, 42, alpha);
+            let border_color = egui::Color32::from_rgba_premultiplied(
+                toast.color.r(),
+                toast.color.g(),
+                toast.color.b(),
+                alpha,
+            );
+            let text_color = egui::Color32::from_rgba_premultiplied(
+                toast.color.r(),
+                toast.color.g(),
+                toast.color.b(),
+                alpha,
+            );
+
+            egui::Area::new(egui::Id::new(("toast", toast.created_at)))
+                .order(egui::Order::Foreground)
+                .fixed_pos(pos)
+                .interactable(false)
+                .show(ctx, |ui| {
+                    egui::Frame::new()
+                        .corner_radius(8.0)
+                        .fill(bg_color)
+                        .stroke(egui::Stroke::new(1.0, border_color))
+                        .inner_margin(egui::Margin::symmetric(pad_x as i8, pad_y as i8))
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new(&toast.message).color(text_color).size(13.0));
+                        });
+                });
         }
     }
 
@@ -387,6 +477,12 @@ impl eframe::App for TranslatorApp {
         if self.show_update_dialog {
             self.draw_update_dialog(ctx);
         }
+
+        if self.detecting_language {
+            self.draw_detect_dialog(ctx);
+        }
+
+        self.draw_toasts(ctx);
 
         self.write_result_on_close(ctx);
     }
