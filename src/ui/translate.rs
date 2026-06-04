@@ -190,16 +190,19 @@ impl TranslatorApp {
     }
 
     pub fn check_thread_result(&mut self) {
-        if let Ok(mut res) = self.thread_result.lock() {
-            if let Some(tr) = res.take() {
-                if let Some(translated) = tr.translated {
-                    self.translated_srt = Some(translated);
-                    self.translation_state = super::TranslationState::Done;
-                    self.translate_status.clear();
-                } else if let Some(err) = tr.error {
-                    self.translation_state = super::TranslationState::Error;
-                    self.translate_status = err;
-                }
+        let result = if let Ok(mut res) = self.thread_result.lock() {
+            res.take()
+        } else {
+            None
+        };
+
+        if let Some(tr) = result {
+            if let Some(translated) = tr.translated {
+                self.translated_srt = Some(translated);
+                self.translation_state = super::TranslationState::Done;
+            } else if let Some(err) = tr.error {
+                self.translation_state = super::TranslationState::Error;
+                self.toast(err, egui::Color32::from_rgb(220, 80, 80));
             }
         }
     }
@@ -305,18 +308,29 @@ impl TranslatorApp {
                 self.draw_progress(ui);
             }
             super::TranslationState::Done => {
-                ui.colored_label(egui::Color32::GREEN, "Translation complete!");
-                ui.add_space(8.0);
-                if ui.button("OK").clicked() {
-                    self.write_result();
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
+                ui.vertical_centered(|ui| {
+                    ui.add_space(12.0);
+                    ui.colored_label(egui::Color32::from_rgb(100, 200, 100), "Translation complete!");
+                    ui.add_space(8.0);
+                    if ui.button("OK").clicked() {
+                        self.write_result();
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
             }
             super::TranslationState::Error => {
-                if ui.button("Close").clicked() {
-                    self.write_result();
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
+                ui.vertical_centered(|ui| {
+                    ui.add_space(12.0);
+                    ui.colored_label(
+                        egui::Color32::from_rgb(220, 80, 80),
+                        "Translation failed — see notification.",
+                    );
+                    ui.add_space(8.0);
+                    if ui.button("Close").clicked() {
+                        self.write_result();
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
             }
         }
     }
@@ -327,64 +341,86 @@ impl TranslatorApp {
             return;
         }
 
+        let lang_labels: Vec<String> = self
+            .languages
+            .iter()
+            .map(|l| format!("{} ({})", l.language_name, l.language_code))
+            .collect();
+
+        let combo_width = 220.0;
+
         ui.group(|ui| {
+            ui.add_space(6.0);
             ui.heading("Translation Settings");
-            ui.add_space(4.0);
+            ui.add_space(6.0);
 
-            ui.horizontal(|ui| {
-                ui.label("Engine:");
-                let selected_text = self.engines.get(self.selected_engine_idx).map(|s| s.as_str()).unwrap_or("");
-                egui::ComboBox::from_id_salt("engine_selector")
-                    .selected_text(selected_text)
-                    .show_ui(ui, |ui| {
-                        for (i, name) in self.engines.iter().enumerate() {
-                            ui.selectable_value(&mut self.selected_engine_idx, i, name);
-                        }
-                    });
-            });
+            egui::Grid::new("translation_settings_grid")
+                .num_columns(3)
+                .spacing([12.0, 8.0])
+                .striped(true)
+                .min_col_width(70.0)
+                .show(ui, |ui| {
+                    // Row: Engine
+                    ui.label(egui::RichText::new("Engine").strong());
+                    ui.set_min_width(combo_width);
+                    let selected_text = self.engines.get(self.selected_engine_idx)
+                        .map(|s| s.as_str()).unwrap_or("");
+                    egui::ComboBox::from_id_salt("engine_selector")
+                        .selected_text(selected_text)
+                        .show_ui(ui, |ui| {
+                            for (i, name) in self.engines.iter().enumerate() {
+                                ui.selectable_value(&mut self.selected_engine_idx, i, name);
+                            }
+                        });
+                    ui.label("");
+                    ui.end_row();
 
-            ui.add_space(4.0);
+                    // Row: Source
+                    ui.label(egui::RichText::new("Source").strong());
+                    ui.set_min_width(combo_width);
+                    let selected_source = lang_labels.get(self.selected_source_idx)
+                        .map(|s| s.as_str()).unwrap_or("Select language");
+                    egui::ComboBox::from_id_salt("source_selector")
+                        .selected_text(selected_source)
+                        .show_ui(ui, |ui| {
+                            for (i, name) in lang_labels.iter().enumerate() {
+                                ui.selectable_value(&mut self.selected_source_idx, i, name);
+                            }
+                        });
+                    if ui.button("Detect").clicked() {
+                        self.start_detect(ctx.clone());
+                    }
+                    ui.end_row();
 
-            let lang_labels: Vec<String> = self
-                .languages
-                .iter()
-                .map(|l| format!("{} ({})", l.language_name, l.language_code))
-                .collect();
+                    // Row: Target
+                    ui.label(egui::RichText::new("Target").strong());
+                    ui.set_min_width(combo_width);
+                    let selected_target = lang_labels.get(self.selected_target_idx)
+                        .map(|s| s.as_str()).unwrap_or("Select language");
+                    egui::ComboBox::from_id_salt("target_selector")
+                        .selected_text(selected_target)
+                        .show_ui(ui, |ui| {
+                            for (i, name) in lang_labels.iter().enumerate() {
+                                ui.selectable_value(&mut self.selected_target_idx, i, name);
+                            }
+                        });
+                    ui.label("");
+                    ui.end_row();
+                });
 
-            ui.horizontal(|ui| {
-                ui.label("Source:");
-                let selected_source = lang_labels.get(self.selected_source_idx).map(|s| s.as_str()).unwrap_or("Select language");
-                egui::ComboBox::from_id_salt("source_selector")
-                    .selected_text(selected_source)
-                    .show_ui(ui, |ui| {
-                        for (i, name) in lang_labels.iter().enumerate() {
-                            ui.selectable_value(&mut self.selected_source_idx, i, name);
-                        }
-                    });
-                if ui.button("Detect").clicked() {
-                    self.start_detect(ctx.clone());
+            ui.add_space(10.0);
+            ui.vertical_centered(|ui| {
+                let btn = egui::Button::new(
+                    egui::RichText::new("Translate").color(egui::Color32::WHITE).size(14.0)
+                )
+                .min_size(egui::vec2(140.0, 0.0))
+                .corner_radius(6.0)
+                .fill(egui::Color32::from_rgb(90, 142, 242));
+                if ui.add(btn).clicked() {
+                    self.start_translation(ctx.clone());
                 }
             });
-
-            ui.add_space(4.0);
-
-            ui.horizontal(|ui| {
-                ui.label("Target:");
-                let selected_target = lang_labels.get(self.selected_target_idx).map(|s| s.as_str()).unwrap_or("Select language");
-                egui::ComboBox::from_id_salt("target_selector")
-                    .selected_text(selected_target)
-                    .show_ui(ui, |ui| {
-                        for (i, name) in lang_labels.iter().enumerate() {
-                            ui.selectable_value(&mut self.selected_target_idx, i, name);
-                        }
-                    });
-            });
-
-            ui.add_space(8.0);
-
-            if ui.button("Translate").clicked() {
-                self.start_translation(ctx.clone());
-            }
+            ui.add_space(6.0);
         });
     }
 
