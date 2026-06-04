@@ -68,6 +68,7 @@ pub struct TranslatorApp {
     pub update_state: UpdateState,
     pub update_check_result: UpdateCheckResult,
     pub update_download_result: UpdateDownloadResult,
+    pub update_progress: Arc<Mutex<f32>>,
     pub show_update_dialog: bool,
 
     logo_texture: Option<egui::TextureHandle>,
@@ -135,6 +136,7 @@ impl TranslatorApp {
             update_state: UpdateState::Idle,
             update_check_result: Arc::new(Mutex::new(None)),
             update_download_result: Arc::new(Mutex::new(None)),
+            update_progress: Arc::new(Mutex::new(0.0)),
             show_update_dialog: false,
             logo_texture,
         }
@@ -224,6 +226,9 @@ impl eframe::App for TranslatorApp {
         if self.first_frame {
             self.first_frame = false;
             self.write_result();
+            if self.settings.has_credentials() && matches!(self.update_state, UpdateState::Idle) {
+                self.check_for_updates(ctx.clone());
+            }
         }
 
         if self.loading_engines {
@@ -257,9 +262,9 @@ impl eframe::App for TranslatorApp {
             ctx.request_repaint();
         }
 
-        if matches!(self.update_state, UpdateState::Downloading { .. }) {
+        if matches!(self.update_state, UpdateState::Downloading) {
             self.process_download_result();
-            ctx.request_repaint();
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {

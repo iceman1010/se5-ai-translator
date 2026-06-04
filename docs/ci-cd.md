@@ -2,19 +2,19 @@
 
 Automated cross-platform builds via GitHub Actions.
 
-## Workflows
-
-### Auto-tag (`.github/workflows/auto-tag.yml`)
-
-Triggers on every push to `master`. Reads the `version` field from `Cargo.toml` and creates a `v<version>` git tag if it doesn't already exist.
-
-> **Known issue:** Tags pushed by the auto-tag workflow use `GITHUB_TOKEN`, which [cannot trigger other workflows](https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow). This means the release workflow will NOT fire automatically from auto-tag. See the workaround below.
+## Workflow
 
 ### Release (`.github/workflows/release.yml`)
 
-Triggers on tag push (`v*`) or manual `workflow_dispatch`. Builds the plugin for all four platforms, packages them, and creates a GitHub Release with downloadable binaries.
+A single unified workflow that handles everything on push to `master`:
 
-> **Note:** The release step (creating the GitHub Release with artifacts) only works on real tag pushes — `workflow_dispatch` has no tag ref and the release step will fail with "GitHub Releases requires a tag". Use `workflow_dispatch` only for testing builds.
+1. **check-version** — Reads `version` from `Cargo.toml`. If a `v<version>` tag already exists, the workflow exits (no-op). Otherwise, proceeds to build + release.
+2. **build** — Builds all four targets in parallel (`fail-fast: false`), packages each as an archive.
+3. **release** — Creates the git tag, then creates a GitHub Release with all artifacts attached.
+
+Also supports `workflow_dispatch` for manual triggering (build only — the release step skips if the tag already exists or can't be pushed).
+
+> **Why not two separate workflows?** Previously, an `auto-tag` workflow created a tag and a separate `release` workflow triggered on that tag. But tags pushed by `GITHUB_TOKEN` [cannot trigger other workflows](https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow). Merging into one workflow eliminates the chaining problem entirely — no PAT needed.
 
 ## Build Matrix
 
@@ -27,31 +27,21 @@ Triggers on tag push (`v*`) or manual `workflow_dispatch`. Builds the plugin for
 
 ## Release Flow
 
-1. Update `version` in `Cargo.toml`, commit and push to `master`
-2. Auto-tag workflow creates `v<version>` tag (from `Cargo.toml`)
-3. Re-push the tag manually (see workaround below)
-4. Release workflow fires on the tag push
-5. Four parallel jobs build for each target (`fail-fast: false` — one failure doesn't cancel others)
-6. A release job collects all artifacts and creates a GitHub Release
-
-## Version Bumping
-
 1. Update `version` in `Cargo.toml`
 2. Commit and push/merge to `master`
-3. Auto-tag creates the tag, but you must re-push it to trigger the release:
+3. The workflow automatically: builds all 4 targets → creates tag → publishes release
 
-```bash
-# The auto-tag workflow creates the tag, but GITHUB_TOKEN can't trigger release.
-# Delete and re-push with your PAT to actually trigger it:
-git tag -d v<x.y.z>
-git push origin :refs/tags/v<x.y.z>
-git tag v<x.y.z>
-git push origin v<x.y.z>
-```
+No manual steps required.
 
-The release workflow verifies the git tag matches `Cargo.toml` version — a mismatch fails the build.
+## Self-Update
 
-> **Future fix:** Configure a Personal Access Token (PAT) with `contents:write` as a repo secret and use it in the auto-tag workflow's push step. This allows auto-tag to trigger release directly, eliminating the manual re-push.
+The plugin has a built-in self-update mechanism (Settings tab → "Check for Updates"):
+
+1. Fetches latest release info from GitHub API
+2. Compares versions
+3. Downloads the platform-appropriate artifact
+4. Extracts and replaces the running binary via `self-replace`
+5. Next SE5 launch uses the updated binary
 
 ## Linux Dependencies
 

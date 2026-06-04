@@ -12,9 +12,8 @@ pub enum UpdateState {
         latest_version: String,
         download_url: String,
     },
-    Downloading {
-        progress: f32,
-    },
+    Downloading,
+    Downloaded,
     Error(String),
 }
 
@@ -209,8 +208,13 @@ impl TranslatorApp {
             _ => return,
         };
 
-        self.update_state = UpdateState::Downloading { progress: 0.0 };
+        self.update_state = UpdateState::Downloading;
         let result = self.update_download_result.clone();
+        let progress = self.update_progress.clone();
+        {
+            let mut p = progress.lock().unwrap();
+            *p = 0.0;
+        }
 
         std::thread::spawn(move || {
             let outcome = (|| -> Result<(), String> {
@@ -224,19 +228,32 @@ impl TranslatorApp {
                     .send()
                     .map_err(|e| format!("Failed to download update: {e}"))?;
 
-                let total = resp.content_length().unwrap_or(0) as usize;
-                let mut archive_data = Vec::with_capacity(total.max(1024 * 1024));
+                let total = resp.content_length().unwrap_or(0) as u64;
+                let mut archive_data = Vec::with_capacity((total as usize).max(1024 * 1024));
 
-                let chunk_size = 64 * 1024;
+                let chunk_size: u64 = 64 * 1024;
+                let mut downloaded: u64 = 0;
                 loop {
-                    let mut chunk = Vec::with_capacity(chunk_size);
+                    let mut chunk = Vec::with_capacity(chunk_size as usize);
                     let n = Read::by_ref(&mut resp)
-                        .take(chunk_size as u64)
+                        .take(chunk_size)
                         .read_to_end(&mut chunk)
                         .map_err(|e| format!("Download error: {e}"))?;
 
                     if n == 0 { break; }
+                    downloaded += n as u64;
                     archive_data.extend_from_slice(&chunk);
+
+                    if total > 0 {
+                        let pct = downloaded as f32 / total as f32;
+                        if let Ok(mut p) = progress.lock() {
+                            *p = pct.min(1.0);
+                        }
+                    }
+                }
+
+                if let Ok(mut p) = progress.lock() {
+                    *p = 1.0;
                 }
 
                 let temp_binary = extract_binary(&archive_data)?;
@@ -261,7 +278,7 @@ impl TranslatorApp {
             if let Some(outcome) = res.take() {
                 match outcome {
                     Ok(()) => {
-                        self.update_state = UpdateState::UpToDate;
+                        self.update_state = UpdateState::Downloaded;
                         self.show_update_dialog = false;
                     }
                     Err(e) => {
@@ -290,14 +307,24 @@ impl TranslatorApp {
                         ui.label("Checking for updates...");
                     });
                 }
-                UpdateState::Downloading { progress } => {
+                UpdateState::Downloading => {
+                    let progress = self.update_progress.lock()
+                        .map(|p| *p)
+                        .unwrap_or(0.0);
                     ui.label("Downloading update...");
                     ui.add_space(4.0);
                     ui.add(
-                        egui::ProgressBar::new(*progress)
+                        egui::ProgressBar::new(progress)
                             .show_percentage()
                             .animate(true),
                     );
+                }
+                UpdateState::Downloaded => {
+                    ui.label(egui::RichText::new("Update installed! Restart to apply.").color(egui::Color32::GREEN));
+                    ui.add_space(4.0);
+                    if ui.button("Close").clicked() {
+                        self.update_state = UpdateState::Idle;
+                    }
                 }
                 UpdateState::UpToDate => {
                     ui.label(egui::RichText::new("You are up to date!").color(egui::Color32::GREEN));
@@ -337,17 +364,23 @@ impl TranslatorApp {
             UpdateState::UpdateAvailable { latest_version, download_url } => {
                 (latest_version.clone(), download_url.clone())
             }
-            UpdateState::Downloading { .. } => {
+            UpdateState::Downloading => {
+                let progress = self.update_progress.lock()
+                    .map(|p| *p)
+                    .unwrap_or(0.0);
                 egui::Window::new("Updating...")
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                     .show(ctx, |ui| {
                         ui.vertical_centered(|ui| {
-                            ui.spinner();
                             ui.label("Downloading and installing update...");
                             ui.add_space(8.0);
-                            ui.label("The plugin will restart automatically.");
+                            ui.add(
+                                egui::ProgressBar::new(progress)
+                                    .show_percentage()
+                                    .animate(true),
+                            );
                         });
                     });
                 return;
