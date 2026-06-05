@@ -17,11 +17,8 @@ pub fn paint_backdrop(ctx: &egui::Context) {
         .fixed_pos(screen_rect.left_top())
         .interactable(true)
         .show(ctx, |ui| {
-            ui.painter().rect_filled(
-                screen_rect,
-                0.0,
-                egui::Color32::from_black_alpha(140),
-            );
+            ui.painter()
+                .rect_filled(screen_rect, 0.0, egui::Color32::from_black_alpha(140));
             ui.allocate_rect(screen_rect, egui::Sense::click());
         });
 }
@@ -83,35 +80,41 @@ fn binary_name_in_archive() -> String {
 
 fn extract_binary(archive_bytes: &[u8]) -> Result<std::path::PathBuf, String> {
     let temp_dir = std::env::temp_dir().join("se-ai-translator-update");
-    std::fs::create_dir_all(&temp_dir)
-        .map_err(|e| format!("Failed to create temp dir: {e}"))?;
+    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {e}"))?;
 
     let binary_name = binary_name_in_archive();
     let output_path = temp_dir.join(&binary_name);
 
     if cfg!(target_os = "windows") {
         let reader = std::io::Cursor::new(archive_bytes);
-        let mut archive = zip::ZipArchive::new(reader)
-            .map_err(|e| format!("Failed to open zip: {e}"))?;
+        let mut archive =
+            zip::ZipArchive::new(reader).map_err(|e| format!("Failed to open zip: {e}"))?;
 
-        let mut file = archive.by_name(&binary_name)
+        let mut file = archive
+            .by_name(&binary_name)
             .map_err(|e| format!("Binary not found in zip: {e}"))?;
 
         let mut out = std::fs::File::create(&output_path)
             .map_err(|e| format!("Failed to create temp file: {e}"))?;
 
-        std::io::copy(&mut file, &mut out)
-            .map_err(|e| format!("Failed to extract binary: {e}"))?;
+        std::io::copy(&mut file, &mut out).map_err(|e| format!("Failed to extract binary: {e}"))?;
     } else {
         let reader = std::io::Cursor::new(archive_bytes);
         let gz = flate2::read::GzDecoder::new(reader);
         let mut archive = tar::Archive::new(gz);
 
         let mut found = false;
-        for entry in archive.entries().map_err(|e| format!("Failed to read tar: {e}"))? {
+        for entry in archive
+            .entries()
+            .map_err(|e| format!("Failed to read tar: {e}"))?
+        {
             let mut entry = entry.map_err(|e| format!("Failed to read tar entry: {e}"))?;
             let path = entry.path().map_err(|e| format!("Bad path: {e}"))?;
-            if path.file_name().map(|n| n == binary_name.as_str()).unwrap_or(false) {
+            if path
+                .file_name()
+                .map(|n| n == binary_name.as_str())
+                .unwrap_or(false)
+            {
                 let mut out = std::fs::File::create(&output_path)
                     .map_err(|e| format!("Failed to create temp file: {e}"))?;
                 std::io::copy(&mut entry, &mut out)
@@ -156,39 +159,50 @@ impl TranslatorApp {
                             .trim_end_matches('/')
                             .replace("https://github.com/", "https://api.github.com/repos/")
                     );
-                    match client.get(&api_url).header("Accept", "application/vnd.github+json").send() {
-                        Ok(resp) => {
-                            match resp.json::<serde_json::Value>() {
-                                Ok(json) => {
-                                    let tag = json.get("tag_name").and_then(|v| v.as_str()).unwrap_or("");
-                                    let version = tag.trim_start_matches('v').to_string();
+                    match client
+                        .get(&api_url)
+                        .header("Accept", "application/vnd.github+json")
+                        .send()
+                    {
+                        Ok(resp) => match resp.json::<serde_json::Value>() {
+                            Ok(json) => {
+                                let tag =
+                                    json.get("tag_name").and_then(|v| v.as_str()).unwrap_or("");
+                                let version = tag.trim_start_matches('v').to_string();
 
-                                    let latest = parse_version_parts(&version);
-                                    let current = parse_version_parts(env!("CARGO_PKG_VERSION"));
+                                let latest = parse_version_parts(&version);
+                                let current = parse_version_parts(env!("CARGO_PKG_VERSION"));
 
-                                    if latest > current {
-                                        let artifact = platform_artifact_name();
-                                        let download_url = json.get("assets")
-                                            .and_then(|a| a.as_array())
-                                            .and_then(|assets| assets.iter().find(|a| {
-                                                a.get("name").and_then(|n| n.as_str()).unwrap_or("") == artifact
-                                            }))
-                                            .and_then(|a| a.get("browser_download_url").and_then(|u| u.as_str()))
-                                            .unwrap_or("")
-                                            .to_string();
+                                if latest > current {
+                                    let artifact = platform_artifact_name();
+                                    let download_url = json
+                                        .get("assets")
+                                        .and_then(|a| a.as_array())
+                                        .and_then(|assets| {
+                                            assets.iter().find(|a| {
+                                                a.get("name").and_then(|n| n.as_str()).unwrap_or("")
+                                                    == artifact
+                                            })
+                                        })
+                                        .and_then(|a| {
+                                            a.get("browser_download_url").and_then(|u| u.as_str())
+                                        })
+                                        .unwrap_or("")
+                                        .to_string();
 
-                                        if download_url.is_empty() {
-                                            Err(format!("No matching artifact found for platform: {artifact}"))
-                                        } else {
-                                            Ok(Some((version, download_url)))
-                                        }
+                                    if download_url.is_empty() {
+                                        Err(format!(
+                                            "No matching artifact found for platform: {artifact}"
+                                        ))
                                     } else {
-                                        Ok(None)
+                                        Ok(Some((version, download_url)))
                                     }
+                                } else {
+                                    Ok(None)
                                 }
-                                Err(e) => Err(format!("Failed to parse release info: {e}")),
                             }
-                        }
+                            Err(e) => Err(format!("Failed to parse release info: {e}")),
+                        },
                         Err(e) => Err(format!("Failed to check for updates: {e}")),
                     }
                 }
@@ -246,7 +260,8 @@ impl TranslatorApp {
                     .build()
                     .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
 
-                let mut resp = client.get(&download_url)
+                let mut resp = client
+                    .get(&download_url)
                     .send()
                     .map_err(|e| format!("Failed to download update: {e}"))?;
 
@@ -262,7 +277,9 @@ impl TranslatorApp {
                         .read_to_end(&mut chunk)
                         .map_err(|e| format!("Download error: {e}"))?;
 
-                    if n == 0 { break; }
+                    if n == 0 {
+                        break;
+                    }
                     downloaded += n as u64;
                     archive_data.extend_from_slice(&chunk);
 
@@ -315,75 +332,103 @@ impl TranslatorApp {
     pub fn draw_settings_tab(&mut self, ui: &mut egui::Ui, ctx: egui::Context) {
         ui.group(|ui| {
             ui.heading("Settings");
-            ui.add_space(8.0);
+            ui.add_space(6.0);
 
-            ui.horizontal(|ui| {
-                ui.label(format!("Current version: {}", env!("CARGO_PKG_VERSION")));
-            });
-            ui.add_space(8.0);
+            // ── Section: Updates ───────────────────────────────────────────
+            ui.label(egui::RichText::new("Updates").strong().size(14.0));
+            ui.add_space(2.0);
 
-            match &self.update_state {
-                UpdateState::Checking => {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.label("Checking for updates...");
-                    });
-                }
-                UpdateState::Downloading => {
-                    let progress = self.update_progress.lock()
-                        .map(|p| *p)
-                        .unwrap_or(0.0);
-                    ui.label("Downloading update...");
-                    ui.add_space(4.0);
-                    ui.add(
-                        egui::ProgressBar::new(progress)
-                            .show_percentage()
-                            .animate(true),
-                    );
-                }
-                UpdateState::Downloaded => {
-                    ui.label(egui::RichText::new("Update installed! Close to apply.").color(egui::Color32::GREEN));
-                    ui.add_space(4.0);
-                    if ui.button("Dismiss").clicked() {
-                        self.update_state = UpdateState::Idle;
+            egui::Grid::new("settings_updates_grid")
+                .num_columns(2)
+                .striped(false)
+                .spacing([12.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label("Current version");
+                    ui.label(env!("CARGO_PKG_VERSION"));
+                    ui.end_row();
+
+                    ui.label("Status");
+                    match &self.update_state {
+                        UpdateState::Checking => {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label("Checking for updates...");
+                            });
+                        }
+                        UpdateState::Downloading => {
+                            let progress = self.update_progress.lock()
+                                .map(|p| *p)
+                                .unwrap_or(0.0);
+                            ui.vertical(|ui| {
+                                ui.label("Downloading update...");
+                                ui.add(
+                                    egui::ProgressBar::new(progress)
+                                        .show_percentage()
+                                        .animate(true)
+                                        .desired_width(200.0),
+                                );
+                            });
+                        }
+                        UpdateState::Downloaded => {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("Update installed!")
+                                        .color(egui::Color32::GREEN),
+                                );
+                                if ui.button("Dismiss").clicked() {
+                                    self.update_state = UpdateState::Idle;
+                                }
+                            });
+                        }
+                        UpdateState::UpToDate => {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("Up to date")
+                                        .color(egui::Color32::GREEN),
+                                );
+                                if ui.button("Check Again").clicked() {
+                                    self.check_for_updates(ctx);
+                                }
+                            });
+                        }
+                        UpdateState::UpdateAvailable { latest_version, .. } => {
+                            let latest_version = latest_version.clone();
+                            ui.horizontal(|ui| {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(255, 180, 60),
+                                    format!("v{latest_version} available"),
+                                );
+                                if ui.button("Update Now").clicked() {
+                                    self.start_self_update(ctx);
+                                }
+                            });
+                        }
+                        UpdateState::Error(e) => {
+                            let e = e.clone();
+                            ui.horizontal(|ui| {
+                                ui.colored_label(egui::Color32::RED, format!("Error: {e}"));
+                                if ui.button("Retry").clicked() {
+                                    self.check_for_updates(ctx);
+                                }
+                            });
+                        }
+                        UpdateState::Idle => {
+                            if ui.button("Check for Updates").clicked() {
+                                self.check_for_updates(ctx);
+                            }
+                        }
                     }
-                }
-                UpdateState::UpToDate => {
-                    ui.label(egui::RichText::new("You are up to date!").color(egui::Color32::GREEN));
-                    ui.add_space(4.0);
-                    if ui.button("Check Again").clicked() {
-                        self.check_for_updates(ctx);
-                    }
-                }
-                UpdateState::UpdateAvailable { latest_version, .. } => {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(255, 180, 60),
-                        format!("New version available: {latest_version}"),
-                    );
-                    ui.add_space(4.0);
-                    if ui.button("Update Now").clicked() {
-                        self.start_self_update(ctx);
-                    }
-                }
-                UpdateState::Error(e) => {
-                    ui.colored_label(egui::Color32::RED, format!("Update failed: {e}"));
-                    ui.add_space(4.0);
-                    if ui.button("Retry").clicked() {
-                        self.check_for_updates(ctx);
-                    }
-                }
-                UpdateState::Idle => {
-                    if ui.button("Check for Updates").clicked() {
-                        self.check_for_updates(ctx);
-                    }
-                }
-            }
+                    ui.end_row();
+                });
         });
     }
 
     pub fn draw_update_dialog(&mut self, ctx: &egui::Context) {
         match &self.update_state {
-            UpdateState::UpdateAvailable { latest_version, download_url } => {
+            UpdateState::UpdateAvailable {
+                latest_version,
+                download_url,
+            } => {
                 paint_backdrop(ctx);
 
                 let latest_version = latest_version.clone();
@@ -445,9 +490,7 @@ impl TranslatorApp {
             UpdateState::Downloading => {
                 paint_backdrop(ctx);
 
-                let progress = self.update_progress.lock()
-                    .map(|p| *p)
-                    .unwrap_or(0.0);
+                let progress = self.update_progress.lock().map(|p| *p).unwrap_or(0.0);
 
                 egui::Window::new("Updating...")
                     .collapsible(false)

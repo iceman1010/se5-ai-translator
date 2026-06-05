@@ -70,13 +70,20 @@ impl TranslatorApp {
                         None => "—".to_string(),
                     };
                     ui.label(egui::RichText::new("Balance:").strong());
-                    ui.label(egui::RichText::new(&balance_text).size(18.0).strong().color(
-                        egui::Color32::from_rgb(120, 200, 120),
-                    ));
+                    ui.label(
+                        egui::RichText::new(&balance_text)
+                            .size(18.0)
+                            .strong()
+                            .color(egui::Color32::from_rgb(120, 200, 120)),
+                    );
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let refreshing = matches!(self.credits_state, CreditsLoadState::Loading);
-                        let btn = egui::Button::new(if refreshing { "Refreshing..." } else { "Refresh" });
+                        let btn = egui::Button::new(if refreshing {
+                            "Refreshing..."
+                        } else {
+                            "Refresh"
+                        });
                         if ui.add_enabled(!refreshing, btn).clicked() {
                             self.refresh_credits();
                         }
@@ -87,11 +94,17 @@ impl TranslatorApp {
                 match self.credits_state {
                     CreditsLoadState::Loading => {
                         ui.add_space(4.0);
-                        ui.label(egui::RichText::new("Loading...").color(egui::Color32::from_rgb(200, 200, 120)));
+                        ui.label(
+                            egui::RichText::new("Loading...")
+                                .color(egui::Color32::from_rgb(200, 200, 120)),
+                        );
                     }
                     CreditsLoadState::Error if !self.credits_error.is_empty() => {
                         ui.add_space(4.0);
-                        ui.colored_label(egui::Color32::from_rgb(255, 120, 120), &self.credits_error);
+                        ui.colored_label(
+                            egui::Color32::from_rgb(255, 120, 120),
+                            &self.credits_error,
+                        );
                     }
                     _ => {}
                 }
@@ -100,9 +113,10 @@ impl TranslatorApp {
                 ui.separator();
                 ui.add_space(4.0);
 
-                // Low-balance warning
+                // Low-balance warning (hardcoded threshold)
+                const LOW_CREDIT_THRESHOLD: u32 = 30;
                 if let Some(b) = self.credits_balance
-                    && b < 10.0
+                    && (b as u32) < LOW_CREDIT_THRESHOLD
                 {
                     ui.add_space(4.0);
                     ui.colored_label(
@@ -118,8 +132,7 @@ impl TranslatorApp {
 
                 if self.credits_packages.is_empty() {
                     ui.label(
-                        egui::RichText::new("No packages available.")
-                            .color(egui::Color32::GRAY),
+                        egui::RichText::new("No packages available.").color(egui::Color32::GRAY),
                     );
                 } else {
                     self.draw_packages_table(ui);
@@ -154,19 +167,31 @@ impl TranslatorApp {
 
         table
             .header(24.0, |mut header| {
-                header.col(|ui| { ui.strong("Package"); });
-                header.col(|ui| { ui.strong("Price"); });
-                header.col(|ui| { ui.strong("Discount"); });
-                header.col(|ui| { ui.strong("Action"); });
+                header.col(|ui| {
+                    ui.strong("Package");
+                });
+                header.col(|ui| {
+                    ui.strong("Price");
+                });
+                header.col(|ui| {
+                    ui.strong("Discount");
+                });
+                header.col(|ui| {
+                    ui.strong("Action");
+                });
             })
             .body(|mut body| {
                 let row_h = 24.0_f32;
 
                 for pkg in &self.credits_packages {
                     body.row(row_h, |mut row| {
-                        row.col(|ui| { ui.label(&pkg.name); });
+                        row.col(|ui| {
+                            ui.label(&pkg.name);
+                        });
                         // API returns `value` as a price string like "5 USD" — display as-is.
-                        row.col(|ui| { ui.label(&pkg.value); });
+                        row.col(|ui| {
+                            ui.label(&pkg.value);
+                        });
 
                         row.col(|ui| {
                             let has_discount = pkg.discount_percent > 0.0;
@@ -188,7 +213,8 @@ impl TranslatorApp {
                                 debug_log!(
                                     "opening checkout URL for {} ({} credits): {}",
                                     pkg.name,
-                                    pkg.credit_count().map_or("?".to_string(), |n| n.to_string()),
+                                    pkg.credit_count()
+                                        .map_or("?".to_string(), |n| n.to_string()),
                                     pkg.checkout_url
                                 );
                                 if let Err(e) = open::that(&pkg.checkout_url) {

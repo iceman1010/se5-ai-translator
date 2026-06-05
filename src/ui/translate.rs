@@ -18,17 +18,22 @@ pub struct DetectResult {
 pub fn find_nearest_language_idx(languages: &[LanguageInfo], detected_code: &str) -> Option<usize> {
     let detected_lower = detected_code.to_lowercase();
 
-    languages.iter().position(|l| l.language_code.to_lowercase() == detected_lower).or_else(|| {
-        let base_detected = detected_lower.split('-').next().unwrap_or(&detected_lower);
-        let base_detected2 = detected_lower.split('_').next().unwrap_or(&detected_lower);
-        languages.iter().position(|l| {
-            let lc_lower = l.language_code.to_lowercase();
-            let base_lang = lc_lower.split('-').next().unwrap_or("");
-            let base_lang2 = lc_lower.split('_').next().unwrap_or("");
-            base_lang == base_detected || base_lang2 == base_detected2
-                || base_detected == base_lang || base_detected2 == base_lang2
+    languages
+        .iter()
+        .position(|l| l.language_code.to_lowercase() == detected_lower)
+        .or_else(|| {
+            let base_detected = detected_lower.split('-').next().unwrap_or(&detected_lower);
+            let base_detected2 = detected_lower.split('_').next().unwrap_or(&detected_lower);
+            languages.iter().position(|l| {
+                let lc_lower = l.language_code.to_lowercase();
+                let base_lang = lc_lower.split('-').next().unwrap_or("");
+                let base_lang2 = lc_lower.split('_').next().unwrap_or("");
+                base_lang == base_detected
+                    || base_lang2 == base_detected2
+                    || base_detected == base_lang
+                    || base_detected2 == base_lang2
+            })
         })
-    })
 }
 
 impl TranslatorApp {
@@ -54,7 +59,10 @@ impl TranslatorApp {
             }
         }
 
-        let engine_for_langs = self.engines.get(self.selected_engine_idx).map(|s| s.as_str());
+        let engine_for_langs = self
+            .engines
+            .get(self.selected_engine_idx)
+            .map(|s| s.as_str());
         self.languages = match client.fetch_languages(engine_for_langs) {
             Ok(l) => l,
             Err(e) => {
@@ -82,7 +90,10 @@ impl TranslatorApp {
         let auth_token = self.settings.auth_token.clone().unwrap_or_default();
         let client = ApiClient::new(&auth_token);
 
-        let engine_name = self.engines.get(self.selected_engine_idx).map(|s| s.as_str());
+        let engine_name = self
+            .engines
+            .get(self.selected_engine_idx)
+            .map(|s| s.as_str());
         match client.fetch_languages(engine_name) {
             Ok(l) => {
                 self.languages = l;
@@ -268,13 +279,16 @@ impl TranslatorApp {
         if let Some(result) = result {
             match result {
                 Ok(detected) => {
-                    if let Some(idx) = find_nearest_language_idx(&self.languages, &detected.w3c_code)
-                        .or_else(|| find_nearest_language_idx(&self.languages, &detected.iso_code))
+                    if let Some(idx) =
+                        find_nearest_language_idx(&self.languages, &detected.w3c_code).or_else(
+                            || find_nearest_language_idx(&self.languages, &detected.iso_code),
+                        )
                     {
                         self.selected_source_idx = idx;
                         let msg = format!(
                             "Detected: {}",
-                            self.languages.get(idx)
+                            self.languages
+                                .get(idx)
                                 .map(|l| format!("{} ({})", l.language_name, l.language_code))
                                 .unwrap_or_else(|| detected.language_name.clone())
                         );
@@ -288,7 +302,10 @@ impl TranslatorApp {
                     }
                 }
                 Err(e) => {
-                    self.toast(format!("Detection failed: {e}"), egui::Color32::from_rgb(220, 80, 80));
+                    self.toast(
+                        format!("Detection failed: {e}"),
+                        egui::Color32::from_rgb(220, 80, 80),
+                    );
                 }
             }
             self.detecting_language = false;
@@ -310,7 +327,10 @@ impl TranslatorApp {
             super::TranslationState::Done => {
                 ui.vertical_centered(|ui| {
                     ui.add_space(12.0);
-                    ui.colored_label(egui::Color32::from_rgb(100, 200, 100), "Translation complete!");
+                    ui.colored_label(
+                        egui::Color32::from_rgb(100, 200, 100),
+                        "Translation complete!",
+                    );
                     ui.add_space(8.0);
                     if ui.button("OK").clicked() {
                         self.write_result();
@@ -363,8 +383,11 @@ impl TranslatorApp {
                     // Row: Engine
                     ui.label(egui::RichText::new("Engine").strong());
                     ui.set_min_width(combo_width);
-                    let selected_text = self.engines.get(self.selected_engine_idx)
-                        .map(|s| s.as_str()).unwrap_or("");
+                    let selected_text = self
+                        .engines
+                        .get(self.selected_engine_idx)
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
                     egui::ComboBox::from_id_salt("engine_selector")
                         .selected_text(selected_text)
                         .show_ui(ui, |ui| {
@@ -378,8 +401,10 @@ impl TranslatorApp {
                     // Row: Source
                     ui.label(egui::RichText::new("Source").strong());
                     ui.set_min_width(combo_width);
-                    let selected_source = lang_labels.get(self.selected_source_idx)
-                        .map(|s| s.as_str()).unwrap_or("Select language");
+                    let selected_source = lang_labels
+                        .get(self.selected_source_idx)
+                        .map(|s| s.as_str())
+                        .unwrap_or("Select language");
                     egui::ComboBox::from_id_salt("source_selector")
                         .selected_text(selected_source)
                         .show_ui(ui, |ui| {
@@ -398,8 +423,10 @@ impl TranslatorApp {
                     // Row: Target
                     ui.label(egui::RichText::new("Target").strong());
                     ui.set_min_width(combo_width);
-                    let selected_target = lang_labels.get(self.selected_target_idx)
-                        .map(|s| s.as_str()).unwrap_or("Select language");
+                    let selected_target = lang_labels
+                        .get(self.selected_target_idx)
+                        .map(|s| s.as_str())
+                        .unwrap_or("Select language");
                     egui::ComboBox::from_id_salt("target_selector")
                         .selected_text(selected_target)
                         .show_ui(ui, |ui| {
@@ -414,7 +441,9 @@ impl TranslatorApp {
             ui.add_space(10.0);
             ui.vertical_centered(|ui| {
                 let btn = egui::Button::new(
-                    egui::RichText::new("Translate").color(egui::Color32::WHITE).size(14.0)
+                    egui::RichText::new("Translate")
+                        .color(egui::Color32::WHITE)
+                        .size(14.0),
                 )
                 .min_size(egui::vec2(140.0, 0.0))
                 .corner_radius(6.0)
@@ -487,7 +516,10 @@ impl TranslatorApp {
             self.detecting_language = false;
             self.detect_start_time = None;
             self.translation_state = super::TranslationState::Idle;
-            self.toast("Language detection cancelled.", egui::Color32::from_gray(180));
+            self.toast(
+                "Language detection cancelled.",
+                egui::Color32::from_gray(180),
+            );
         }
     }
 }

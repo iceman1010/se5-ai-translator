@@ -22,7 +22,9 @@ fn main() {
     debug_log!("Plugin starting");
 
     let args: Vec<String> = std::env::args().collect();
-    let request_path = args.get(1).expect("Usage: se-ai-translator <request.json path>");
+    let request_path = args
+        .get(1)
+        .expect("Usage: se-ai-translator <request.json path>");
 
     let se_request = match read_request(request_path) {
         Ok(r) => r,

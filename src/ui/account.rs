@@ -11,7 +11,10 @@ impl TranslatorApp {
             return;
         }
 
-        debug_log!("do_login: attempting login for user={}", self.login_username);
+        debug_log!(
+            "do_login: attempting login for user={}",
+            self.login_username
+        );
         self.account_status = "Logging in...".to_string();
 
         let username = self.login_username.clone();
@@ -19,7 +22,11 @@ impl TranslatorApp {
 
         self.settings.username = Some(username.clone());
         self.settings.password = Some(password.clone());
-        debug_log!("credentials saved to settings before API call: username={} password={}", username, password);
+        debug_log!(
+            "credentials saved to settings before API call: username={} password={}",
+            username,
+            password
+        );
         self.save_settings_now();
 
         match ApiClient::login(&username, &password) {

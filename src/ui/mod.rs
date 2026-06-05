@@ -116,10 +116,8 @@ impl TranslatorApp {
         style.spacing.button_padding = egui::vec2(12.0, 6.0);
         style.spacing.indent = 18.0;
         style.visuals.button_frame = true;
-        style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(
-            1.0,
-            egui::Color32::from_rgb(50, 55, 70),
-        );
+        style.visuals.widgets.noninteractive.bg_stroke =
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 55, 70));
         ctx.set_style(style);
 
         let mut theme = egui::Visuals::dark();
@@ -130,20 +128,24 @@ impl TranslatorApp {
         theme.hyperlink_color = egui::Color32::from_rgb(90, 142, 242);
         theme.selection.bg_fill = egui::Color32::from_rgb(50, 90, 160);
 
-        theme.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(180));
+        theme.widgets.noninteractive.fg_stroke =
+            egui::Stroke::new(1.0, egui::Color32::from_gray(180));
         theme.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(30, 33, 44);
 
         theme.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
         theme.widgets.hovered.bg_fill = egui::Color32::from_rgb(50, 55, 75);
-        theme.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 142, 242));
+        theme.widgets.hovered.bg_stroke =
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 142, 242));
 
         theme.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
         theme.widgets.active.bg_fill = egui::Color32::from_rgb(55, 60, 82);
-        theme.widgets.active.bg_stroke = egui::Stroke::new(1.5, egui::Color32::from_rgb(90, 142, 242));
+        theme.widgets.active.bg_stroke =
+            egui::Stroke::new(1.5, egui::Color32::from_rgb(90, 142, 242));
 
         theme.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(180));
         theme.widgets.inactive.bg_fill = egui::Color32::from_rgb(35, 38, 50);
-        theme.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 55, 70));
+        theme.widgets.inactive.bg_stroke =
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(50, 55, 70));
 
         ctx.set_visuals(theme);
     }
@@ -166,8 +168,8 @@ impl TranslatorApp {
         Self::apply_theme(&cc.egui_ctx);
 
         let logo_texture = {
-            let image = image::load_from_memory(ICON_PNG)
-                .expect("failed to load embedded icon.png");
+            let image =
+                image::load_from_memory(ICON_PNG).expect("failed to load embedded icon.png");
             let size = [image.width() as usize, image.height() as usize];
             let pixels: Vec<egui::Color32> = image
                 .to_rgba8()
@@ -175,11 +177,10 @@ impl TranslatorApp {
                 .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
                 .collect();
             let color_image = egui::ColorImage { size, pixels };
-            Some(cc.egui_ctx.load_texture(
-                "logo",
-                color_image,
-                egui::TextureOptions::LINEAR,
-            ))
+            Some(
+                cc.egui_ctx
+                    .load_texture("logo", color_image, egui::TextureOptions::LINEAR),
+            )
         };
 
         Self {
@@ -229,12 +230,21 @@ impl TranslatorApp {
     }
 
     pub fn set_request(&mut self, request: SeRequest) {
-        debug_log!("set_request: response_path={} raw_settings={:?}", request.response_file_path, request.settings);
+        debug_log!(
+            "set_request: response_path={} raw_settings={:?}",
+            request.response_file_path,
+            request.settings
+        );
         self.response_path = Some(request.response_file_path.clone());
 
         let loaded_settings = PluginSettings::from_se_settings(request.settings.as_ref());
-        debug_log!("loaded_settings: auth_token={:?} username={:?} password={:?} has_creds={}",
-            loaded_settings.auth_token, loaded_settings.username, loaded_settings.password, loaded_settings.has_credentials());
+        debug_log!(
+            "loaded_settings: auth_token={:?} username={:?} password={:?} has_creds={}",
+            loaded_settings.auth_token,
+            loaded_settings.username,
+            loaded_settings.password,
+            loaded_settings.has_credentials()
+        );
         self.settings = loaded_settings;
 
         if let Some(ref u) = self.settings.username {
@@ -257,9 +267,12 @@ impl TranslatorApp {
 
     pub fn write_result(&self) {
         if let (Some(path), Some(response)) = (&self.response_path, self.build_response()) {
-            debug_log!("write_result: status={} settings={{auth_token={:?}, username={:?}}}",
-                response.status, response.settings.as_ref().and_then(|s| s.get("authToken")),
-                response.settings.as_ref().and_then(|s| s.get("username")));
+            debug_log!(
+                "write_result: status={} settings={{auth_token={:?}, username={:?}}}",
+                response.status,
+                response.settings.as_ref().and_then(|s| s.get("authToken")),
+                response.settings.as_ref().and_then(|s| s.get("username"))
+            );
             let _ = crate::se_contract::write_response(&response, path);
         }
     }
@@ -291,7 +304,8 @@ impl TranslatorApp {
 
     pub fn draw_toasts(&mut self, ctx: &egui::Context) {
         let now = std::time::Instant::now();
-        self.toasts.retain(|t| now.duration_since(t.created_at) < TOAST_DURATION);
+        self.toasts
+            .retain(|t| now.duration_since(t.created_at) < TOAST_DURATION);
 
         if self.toasts.is_empty() {
             return;
@@ -309,11 +323,13 @@ impl TranslatorApp {
                 255
             };
 
-            let galley = ctx.fonts(|f| f.layout_no_wrap(
-                toast.message.clone(),
-                egui::FontId::proportional(13.0),
-                egui::Color32::WHITE,
-            ));
+            let galley = ctx.fonts(|f| {
+                f.layout_no_wrap(
+                    toast.message.clone(),
+                    egui::FontId::proportional(13.0),
+                    egui::Color32::WHITE,
+                )
+            });
             let text_width = galley.size().x;
             let pad_x = 16.0_f32;
             let pad_y = 8.0_f32;
@@ -321,10 +337,7 @@ impl TranslatorApp {
             let total_h = galley.size().y + pad_y * 2.0;
             y -= total_h + 6.0;
 
-            let pos = egui::pos2(
-                screen.center().x - total_w / 2.0,
-                y,
-            );
+            let pos = egui::pos2(screen.center().x - total_w / 2.0, y);
 
             let bg_color = egui::Color32::from_rgba_premultiplied(30, 32, 42, alpha);
             let border_color = egui::Color32::from_rgba_premultiplied(
@@ -351,7 +364,11 @@ impl TranslatorApp {
                         .stroke(egui::Stroke::new(1.0, border_color))
                         .inner_margin(egui::Margin::symmetric(pad_x as i8, pad_y as i8))
                         .show(ui, |ui| {
-                            ui.label(egui::RichText::new(&toast.message).color(text_color).size(13.0));
+                            ui.label(
+                                egui::RichText::new(&toast.message)
+                                    .color(text_color)
+                                    .size(13.0),
+                            );
                         });
                 });
         }
@@ -389,7 +406,11 @@ impl TranslatorApp {
                         if is_active { 1.5 } else { 0.0 },
                         if is_active { tab_accent } else { tab_border },
                     ))
-                    .fill(if is_active { tab_bg_active } else { egui::Color32::TRANSPARENT });
+                    .fill(if is_active {
+                        tab_bg_active
+                    } else {
+                        egui::Color32::TRANSPARENT
+                    });
 
                 let resp = frame.show(ui, |ui| {
                     let text = egui::RichText::new(label).color(if is_active {
@@ -448,7 +469,10 @@ impl eframe::App for TranslatorApp {
             ctx.request_repaint();
         }
 
-        if !self.loading_engines && !self.loading_languages && self.selected_engine_idx != self.prev_engine_idx {
+        if !self.loading_engines
+            && !self.loading_languages
+            && self.selected_engine_idx != self.prev_engine_idx
+        {
             self.loading_languages = true;
             self.translate_status = "Loading languages...".to_string();
             ctx.request_repaint();
@@ -511,7 +535,9 @@ impl eframe::App for TranslatorApp {
                 }
                 ui.add_space(2.0);
                 ui.label(
-                    egui::RichText::new(APP_DESCRIPTION).small().color(egui::Color32::GRAY),
+                    egui::RichText::new(APP_DESCRIPTION)
+                        .small()
+                        .color(egui::Color32::GRAY),
                 );
                 ui.add_space(4.0);
 
@@ -530,7 +556,11 @@ impl eframe::App for TranslatorApp {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                    ui.label(egui::RichText::new(concat!("v", env!("CARGO_PKG_VERSION"))).small().color(egui::Color32::GRAY));
+                    ui.label(
+                        egui::RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
+                            .small()
+                            .color(egui::Color32::GRAY),
+                    );
                 });
             });
         });

@@ -167,11 +167,13 @@ impl PluginSettings {
 }
 
 pub fn read_request(path: &str) -> Result<SeRequest, String> {
-    let content = std::fs::read_to_string(path).map_err(|e| format!("Cannot read request file: {e}"))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("Cannot read request file: {e}"))?;
     serde_json::from_str(&content).map_err(|e| format!("Invalid request JSON: {e}"))
 }
 
 pub fn write_response(response: &SeResponse, path: &str) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(response).map_err(|e| format!("Cannot serialize response: {e}"))?;
+    let json = serde_json::to_string_pretty(response)
+        .map_err(|e| format!("Cannot serialize response: {e}"))?;
     std::fs::write(path, json).map_err(|e| format!("Cannot write response file: {e}"))
 }

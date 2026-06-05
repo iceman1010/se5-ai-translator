@@ -28,7 +28,9 @@ impl TranslatorApp {
                     // Empty result is suspicious — most likely a deserialization
                     // mismatch (e.g. field names changed). Log it loudly so it
                     // doesn't look like "no models available" with no clue.
-                    debug_log!("refresh_services_info: WARNING — empty translation list, possible serde mismatch");
+                    debug_log!(
+                        "refresh_services_info: WARNING — empty translation list, possible serde mismatch"
+                    );
                 }
                 self.services_info = models;
                 // Keep current selection if still valid. Don't auto-select: an
@@ -76,8 +78,7 @@ impl TranslatorApp {
                     }
                     CreditsLoadState::Loaded if self.services_info.is_empty() => {
                         ui.label(
-                            egui::RichText::new("No models available.")
-                                .color(egui::Color32::GRAY),
+                            egui::RichText::new("No models available.").color(egui::Color32::GRAY),
                         );
                     }
                     CreditsLoadState::Loaded => {
@@ -93,7 +94,9 @@ impl TranslatorApp {
                     CreditsLoadState::Idle | CreditsLoadState::Error => {}
                 }
 
-                if matches!(self.services_state, CreditsLoadState::Loaded) && !self.services_info.is_empty() {
+                if matches!(self.services_state, CreditsLoadState::Loaded)
+                    && !self.services_info.is_empty()
+                {
                     ui.add_space(8.0);
                     ui.separator();
                     ui.add_space(4.0);
@@ -251,7 +254,10 @@ impl TranslatorApp {
                                 .size(12.0),
                         )
                         .fill(egui::Color32::from_rgb(70, 75, 90))
-                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(110, 115, 130)))
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            egui::Color32::from_rgb(110, 115, 130),
+                        ))
                         .min_size(egui::Vec2::splat(22.0))
                         .corner_radius(egui::CornerRadius::same(11));
 
@@ -331,8 +337,7 @@ impl TranslatorApp {
                                         .small(),
                                 );
                                 ui.label(
-                                    egui::RichText::new(name)
-                                        .color(egui::Color32::from_gray(220)),
+                                    egui::RichText::new(name).color(egui::Color32::from_gray(220)),
                                 );
                             });
                         }
@@ -397,11 +402,21 @@ impl TranslatorApp {
 
         table
             .header(24.0, |mut header| {
-                header.col(|ui| { ui.strong("Model"); });
-                header.col(|ui| { ui.strong("Reliability"); });
-                header.col(|ui| { ui.strong("Speed"); });
-                header.col(|ui| { ui.strong("Credits / 1k"); });
-                header.col(|ui| { ui.strong("Languages"); });
+                header.col(|ui| {
+                    ui.strong("Model");
+                });
+                header.col(|ui| {
+                    ui.strong("Reliability");
+                });
+                header.col(|ui| {
+                    ui.strong("Speed");
+                });
+                header.col(|ui| {
+                    ui.strong("Credits / 1k");
+                });
+                header.col(|ui| {
+                    ui.strong("Languages");
+                });
             })
             .body(|mut body| {
                 let row_h = 22.0_f32;
@@ -411,13 +426,13 @@ impl TranslatorApp {
                     body.row(row_h, |mut row| {
                         // Model name
                         row.col(|ui| {
-                            let text = egui::RichText::new(&row_data.display_name)
-                                .strong()
-                                .color(if is_selected {
+                            let text = egui::RichText::new(&row_data.display_name).strong().color(
+                                if is_selected {
                                     egui::Color32::from_rgb(90, 142, 242)
                                 } else {
                                     egui::Color32::from_gray(220)
-                                });
+                                },
+                            );
                             ui.label(text);
                         });
 

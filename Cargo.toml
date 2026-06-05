@@ -1,6 +1,6 @@
 [package]
 name = "se-ai-translator"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 description = "SubtitleEdit 5 plugin for AI subtitle translation via OpenSubtitles API"
 authors = ["AI.OpenSubtitles.com"]

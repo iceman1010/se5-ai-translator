@@ -10,11 +10,7 @@ pub fn init_log() {
         let dir = format!("{home}/.cache/se-ai-translator");
         let _ = std::fs::create_dir_all(&dir);
         let path = format!("{dir}/debug.log");
-        if let Ok(file) = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-        {
+        if let Ok(file) = OpenOptions::new().create(true).append(true).open(&path) {
             *LOG_FILE.lock().unwrap() = Some(file);
         }
     }

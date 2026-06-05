@@ -202,10 +202,14 @@ impl ApiClient {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().unwrap_or_default();
-            return Err(TranslateError::Auth(format!("Login failed ({status}): {body}")));
+            return Err(TranslateError::Auth(format!(
+                "Login failed ({status}): {body}"
+            )));
         }
 
-        let data: serde_json::Value = resp.json().map_err(|e| TranslateError::Auth(e.to_string()))?;
+        let data: serde_json::Value = resp
+            .json()
+            .map_err(|e| TranslateError::Auth(e.to_string()))?;
         data.get("token")
             .and_then(|t| t.as_str())
             .map(|t| t.to_string())
@@ -217,7 +221,9 @@ impl ApiClient {
         headers.insert("Api-Key", API_KEY.parse().expect("invalid api key"));
         headers.insert(
             "Authorization",
-            format!("Bearer {}", self.auth_token).parse().expect("invalid token"),
+            format!("Bearer {}", self.auth_token)
+                .parse()
+                .expect("invalid token"),
         );
         headers.insert("Accept", "application/json".parse().unwrap());
         headers.insert("User-Agent", "se-ai-translator v0.1.0".parse().unwrap());
@@ -249,10 +255,14 @@ impl ApiClient {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().unwrap_or_default();
-            return Err(TranslateError::Api(format!("Language detection failed ({status}): {body}")));
+            return Err(TranslateError::Api(format!(
+                "Language detection failed ({status}): {body}"
+            )));
         }
 
-        let data: serde_json::Value = resp.json().map_err(|e| TranslateError::Api(e.to_string()))?;
+        let data: serde_json::Value = resp
+            .json()
+            .map_err(|e| TranslateError::Api(e.to_string()))?;
 
         let lang_data = data
             .get("data")
@@ -261,8 +271,8 @@ impl ApiClient {
             .or_else(|| data.get("language").cloned())
             .ok_or_else(|| TranslateError::Api("No language in detection response".to_string()))?;
 
-        let detected: DetectedLanguage =
-            serde_json::from_value(lang_data).map_err(|e| TranslateError::Api(format!("Invalid detection response: {e}")))?;
+        let detected: DetectedLanguage = serde_json::from_value(lang_data)
+            .map_err(|e| TranslateError::Api(format!("Invalid detection response: {e}")))?;
 
         let _ = std::fs::remove_file(&file_path);
         Ok(detected)
@@ -277,10 +287,15 @@ impl ApiClient {
             .map_err(|e| TranslateError::Network(e.to_string()))?;
 
         if !resp.status().is_success() {
-            return Err(TranslateError::Api(format!("Failed to fetch engines: {}", resp.status())));
+            return Err(TranslateError::Api(format!(
+                "Failed to fetch engines: {}",
+                resp.status()
+            )));
         }
 
-        let data: serde_json::Value = resp.json().map_err(|e| TranslateError::Api(e.to_string()))?;
+        let data: serde_json::Value = resp
+            .json()
+            .map_err(|e| TranslateError::Api(e.to_string()))?;
         let engines = data
             .get("data")
             .and_then(|d| d.as_array())
@@ -293,7 +308,10 @@ impl ApiClient {
         Ok(engines)
     }
 
-    pub fn fetch_languages(&self, engine: Option<&str>) -> Result<Vec<LanguageInfo>, TranslateError> {
+    pub fn fetch_languages(
+        &self,
+        engine: Option<&str>,
+    ) -> Result<Vec<LanguageInfo>, TranslateError> {
         let mut body = serde_json::Map::new();
         if let Some(e) = engine {
             body.insert("api".to_string(), serde_json::Value::String(e.to_string()));
@@ -308,10 +326,15 @@ impl ApiClient {
             .map_err(|e| TranslateError::Network(e.to_string()))?;
 
         if !resp.status().is_success() {
-            return Err(TranslateError::Api(format!("Failed to fetch languages: {}", resp.status())));
+            return Err(TranslateError::Api(format!(
+                "Failed to fetch languages: {}",
+                resp.status()
+            )));
         }
 
-        let data: serde_json::Value = resp.json().map_err(|e| TranslateError::Api(e.to_string()))?;
+        let data: serde_json::Value = resp
+            .json()
+            .map_err(|e| TranslateError::Api(e.to_string()))?;
         let data_obj = data.get("data").and_then(|d| d.as_object());
 
         let languages = if let Some(engine_name) = engine {
@@ -407,11 +430,18 @@ impl ApiClient {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().unwrap_or_default();
-            return Err(TranslateError::Api(format!("Translation request failed ({status}): {body}")));
+            return Err(TranslateError::Api(format!(
+                "Translation request failed ({status}): {body}"
+            )));
         }
 
-        let data: serde_json::Value = resp.json().map_err(|e| TranslateError::Api(e.to_string()))?;
-        debug_log!("translate response: {}", serde_json::to_string_pretty(&data).unwrap_or_default());
+        let data: serde_json::Value = resp
+            .json()
+            .map_err(|e| TranslateError::Api(e.to_string()))?;
+        debug_log!(
+            "translate response: {}",
+            serde_json::to_string_pretty(&data).unwrap_or_default()
+        );
 
         let correlation_id = data
             .get("correlation_id")
@@ -467,9 +497,17 @@ impl ApiClient {
                 continue;
             }
 
-            let data: serde_json::Value = resp.json().map_err(|e| TranslateError::Api(e.to_string()))?;
-            let status = data.get("status").and_then(|v| v.as_str()).unwrap_or("UNKNOWN");
-            debug_log!("poll attempt={attempt} status={status} data={}", serde_json::to_string(&data).unwrap_or_default());
+            let data: serde_json::Value = resp
+                .json()
+                .map_err(|e| TranslateError::Api(e.to_string()))?;
+            let status = data
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("UNKNOWN");
+            debug_log!(
+                "poll attempt={attempt} status={status} data={}",
+                serde_json::to_string(&data).unwrap_or_default()
+            );
 
             match status {
                 "COMPLETED" => {
@@ -484,12 +522,19 @@ impl ApiClient {
                         })
                         .or_else(|| data.get("translation").and_then(|v| v.as_str()))
                         .ok_or_else(|| {
-                            debug_log!("poll COMPLETED but no content found. Full response: {}", serde_json::to_string(&data).unwrap_or_default());
-                            TranslateError::Api("Translation completed but no content returned".to_string())
+                            debug_log!(
+                                "poll COMPLETED but no content found. Full response: {}",
+                                serde_json::to_string(&data).unwrap_or_default()
+                            );
+                            TranslateError::Api(
+                                "Translation completed but no content returned".to_string(),
+                            )
                         })?;
 
                     if translation.is_empty() {
-                        return Err(TranslateError::Api("Translation returned empty content".to_string()));
+                        return Err(TranslateError::Api(
+                            "Translation returned empty content".to_string(),
+                        ));
                     }
 
                     progress_cb(1.0);
@@ -554,7 +599,10 @@ impl ApiClient {
     /// Endpoint: `POST /ai/credits/buy`. Accepts either JSON or multipart form;
     /// we use multipart to match the TS client and to support an optional email field
     /// (which personalises the signed checkout URLs).
-    pub fn get_credit_packages(&self, email: Option<&str>) -> Result<Vec<CreditPackage>, TranslateError> {
+    pub fn get_credit_packages(
+        &self,
+        email: Option<&str>,
+    ) -> Result<Vec<CreditPackage>, TranslateError> {
         let mut form = multipart::Form::new();
         if let Some(email) = email.filter(|s| !s.is_empty()) {
             form = form.text("email", email.to_string());
