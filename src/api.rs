@@ -96,6 +96,62 @@ pub struct CreditPackagesResponse {
     pub data: Vec<CreditPackage>,
 }
 
+/// One model entry from `GET /ai/info/services` (`data.Translation[]`).
+///
+/// Note: API returns `pricing` as a coarse label (e.g. "Pay-per-character") and
+/// `price` as the numeric per-character cost. `speed` is undocumented but always
+/// present in practice ("slow" | "medium" | "fast" | "very slow").
+#[derive(Debug, Clone, Deserialize)]
+pub struct ServiceModel {
+    /// Internal API identifier (e.g. "gemini3-flash"). Not currently displayed
+    /// in the UI but kept for future use (e.g. deep-linking to a model).
+    #[allow(dead_code)]
+    pub name: String,
+    pub display_name: String,
+    pub description: String,
+    /// Coarse pricing label, e.g. "Pay-per-character". Same for all translation
+    /// models, so currently unused in the UI. Kept for completeness.
+    #[allow(dead_code)]
+    pub pricing: String,
+    /// "low" | "medium" | "high"
+    pub reliability: String,
+    /// "slow" | "medium" | "fast" | "very slow"
+    pub speed: String,
+    /// Per-character cost.
+    pub price: f64,
+    pub languages_supported: Vec<LanguageInfo>,
+}
+
+impl ServiceModel {
+    /// Per-1,000-character cost (raw `price` is per character and hard to compare).
+    pub fn price_per_1000(&self) -> f64 {
+        self.price * 1000.0
+    }
+}
+
+/// Top-level response shape for `GET /ai/info/services`.
+///
+/// Actual API response:
+/// ```json
+/// { "data": { "Translation": [...], "Transcription": [...] } }
+/// ```
+///
+/// Note: keys are PascalCase in the payload (not the snake_case the TS docs imply).
+#[derive(Debug, Clone, Deserialize)]
+pub struct ServicesInfoResponse {
+    pub data: ServicesInfoData,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct ServicesInfoData {
+    #[serde(default)]
+    pub translation: Vec<ServiceModel>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub transcription: Vec<serde_json::Value>,
+}
+
 #[derive(Debug)]
 pub enum TranslateError {
     Network(String),
@@ -525,5 +581,34 @@ impl ApiClient {
             .map_err(|e| TranslateError::Api(format!("Invalid credit packages response: {e}")))?;
 
         Ok(data.data)
+    }
+
+    /// Fetches the list of available AI services (translation + transcription
+    /// models with pricing, reliability, speed, supported languages).
+    ///
+    /// Endpoint: `GET /ai/info/services`. Returns only the Translation models;
+    /// transcription models are dropped at the API boundary since this plugin
+    /// is translation-only.
+    pub fn get_services_info(&self) -> Result<Vec<ServiceModel>, TranslateError> {
+        let resp = self
+            .client
+            .get(format!("{API_BASE_URL}/ai/info/services"))
+            .headers(self.common_headers())
+            .send()
+            .map_err(|e| TranslateError::Network(e.to_string()))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().unwrap_or_default();
+            return Err(TranslateError::Api(format!(
+                "Failed to fetch services info ({status}): {body}"
+            )));
+        }
+
+        let data: ServicesInfoResponse = resp
+            .json()
+            .map_err(|e| TranslateError::Api(format!("Invalid services info response: {e}")))?;
+
+        Ok(data.data.translation)
     }
 }

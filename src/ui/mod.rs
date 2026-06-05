@@ -5,6 +5,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use crate::api::LanguageInfo;
+use crate::api::ServiceModel;
 use crate::ui::translate::{DetectResult, ThreadResult};
 use crate::ui::update::{UpdateCheckResult, UpdateDownloadResult, UpdateState};
 
@@ -93,6 +94,12 @@ pub struct TranslatorApp {
     pub credits_packages: Vec<crate::api::CreditPackage>,
     pub credits_state: CreditsLoadState,
     pub credits_error: String,
+
+    pub services_info: Vec<ServiceModel>,
+    pub services_state: CreditsLoadState,
+    pub services_error: String,
+    pub selected_service_idx: Option<usize>,
+    pub services_langs_expanded: bool,
 
     pub toasts: Vec<Toast>,
 
@@ -207,6 +214,11 @@ impl TranslatorApp {
             credits_packages: Vec::new(),
             credits_state: CreditsLoadState::Idle,
             credits_error: String::new(),
+            services_info: Vec::new(),
+            services_state: CreditsLoadState::Idle,
+            services_error: String::new(),
+            selected_service_idx: None,
+            services_langs_expanded: false,
             toasts: Vec::new(),
             logo_texture,
         }
@@ -472,6 +484,20 @@ impl eframe::App for TranslatorApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 
+        // Auto-fetch services info when user opens the AI Models tab for the first
+        // time (or after a previous error). Subsequent refreshes are user-driven.
+        if self.active_tab == Tab::AiModels
+            && self.settings.has_credentials()
+            && matches!(self.services_state, CreditsLoadState::Idle)
+        {
+            self.refresh_services_info();
+            ctx.request_repaint();
+        }
+
+        if matches!(self.services_state, CreditsLoadState::Loading) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(8.0);
@@ -507,6 +533,10 @@ impl eframe::App for TranslatorApp {
 
         if self.show_update_dialog {
             self.draw_update_dialog(ctx);
+        }
+
+        if matches!(self.services_state, CreditsLoadState::Error) {
+            self.draw_services_error_dialog(ctx);
         }
 
         if self.detecting_language {
