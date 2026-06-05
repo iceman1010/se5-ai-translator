@@ -99,7 +99,10 @@ pub struct TranslatorApp {
     pub services_state: CreditsLoadState,
     pub services_error: String,
     pub selected_service_idx: Option<usize>,
-    pub services_langs_expanded: bool,
+    /// Which model's language list is currently shown in the modal (None = closed).
+    pub services_langs_modal_idx: Option<usize>,
+    /// Current text in the language-list modal search field.
+    pub services_langs_search: String,
 
     pub toasts: Vec<Toast>,
 
@@ -218,7 +221,8 @@ impl TranslatorApp {
             services_state: CreditsLoadState::Idle,
             services_error: String::new(),
             selected_service_idx: None,
-            services_langs_expanded: false,
+            services_langs_modal_idx: None,
+            services_langs_search: String::new(),
             toasts: Vec::new(),
             logo_texture,
         }
@@ -537,6 +541,10 @@ impl eframe::App for TranslatorApp {
 
         if matches!(self.services_state, CreditsLoadState::Error) {
             self.draw_services_error_dialog(ctx);
+        }
+
+        if self.services_langs_modal_idx.is_some() {
+            self.draw_services_langs_modal(ctx);
         }
 
         if self.detecting_language {

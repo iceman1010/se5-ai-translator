@@ -66,7 +66,7 @@ impl TranslatorApp {
                 // Top row: balance + refresh button
                 ui.horizontal(|ui| {
                     let balance_text = match self.credits_balance {
-                        Some(b) => format!("{b:.2}"),
+                        Some(b) => format!("{}", b as i64),
                         None => "—".to_string(),
                     };
                     ui.label(egui::RichText::new("Balance:").strong());
@@ -107,7 +107,7 @@ impl TranslatorApp {
                     ui.add_space(4.0);
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 180, 80),
-                        format!("Low balance ({b:.2}). Consider purchasing more credits below."),
+                        format!("Low balance ({}). Consider purchasing more credits below.", b as i64),
                     );
                     ui.add_space(4.0);
                 }
