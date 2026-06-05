@@ -1,4 +1,5 @@
-use crate::api::{ApiClient, LanguageInfo};
+use crate::api::{ApiClient, LanguageInfo, TranslationUsage};
+use crate::debug_log;
 use eframe::egui;
 use std::sync::atomic::Ordering;
 
@@ -6,6 +7,10 @@ use super::TranslatorApp;
 
 pub struct ThreadResult {
     pub translated: Option<String>,
+    pub usage: Option<TranslationUsage>,
+    /// If the worker thread refreshed its auth token mid-flight, the new
+    /// token lands here so the UI can persist it to PluginSettings.
+    pub refreshed_token: Option<String>,
     pub error: Option<String>,
 }
 
@@ -13,6 +18,13 @@ pub struct DetectResult {
     pub iso_code: String,
     pub w3c_code: String,
     pub language_name: String,
+}
+
+/// Wrapper carrying the detect worker's outcome plus any side-effects
+/// produced mid-flight (refreshed token) so the UI thread can persist them.
+pub struct DetectThreadResult {
+    pub result: Result<DetectResult, String>,
+    pub refreshed_token: Option<String>,
 }
 
 pub fn find_nearest_language_idx(languages: &[LanguageInfo], detected_code: &str) -> Option<usize> {
@@ -39,8 +51,10 @@ pub fn find_nearest_language_idx(languages: &[LanguageInfo], detected_code: &str
 impl TranslatorApp {
     pub fn fetch_engines_and_languages(&mut self) {
         let auth_token = self.settings.auth_token.clone().unwrap_or_default();
+        let username = self.settings.username.clone();
+        let password = self.settings.password.clone();
 
-        let client = ApiClient::new(&auth_token);
+        let mut client = ApiClient::with_credentials(&auth_token, username, password, None);
         self.engines = match client.fetch_engines() {
             Ok(e) => e,
             Err(e) => {
@@ -71,6 +85,7 @@ impl TranslatorApp {
             }
         };
 
+        self.persist_refreshed_token(&mut client);
         self.loading_engines = false;
         self.loading_languages = false;
         self.translate_status.clear();
@@ -88,7 +103,9 @@ impl TranslatorApp {
 
     pub fn fetch_languages_for_engine(&mut self) {
         let auth_token = self.settings.auth_token.clone().unwrap_or_default();
-        let client = ApiClient::new(&auth_token);
+        let username = self.settings.username.clone();
+        let password = self.settings.password.clone();
+        let mut client = ApiClient::with_credentials(&auth_token, username, password, None);
 
         let engine_name = self
             .engines
@@ -102,6 +119,7 @@ impl TranslatorApp {
                 self.prev_engine_idx = self.selected_engine_idx;
                 self.loading_languages = false;
                 self.translate_status.clear();
+                self.persist_refreshed_token(&mut client);
             }
             Err(e) => {
                 self.translate_status = format!("Failed to load languages: {e}");
@@ -150,12 +168,19 @@ impl TranslatorApp {
             .unwrap_or_default();
 
         let auth_token = self.settings.auth_token.clone().unwrap_or_default();
+        let username = self.settings.username.clone();
+        let password = self.settings.password.clone();
 
         self.translation_state = super::TranslationState::Translating;
         *self.progress.lock().unwrap() = 0.0;
         self.cancel_flag.store(false, Ordering::Relaxed);
         self.translate_status = "Translating...".to_string();
         *self.thread_result.lock().unwrap() = None;
+        self.translation_start = Some(std::time::Instant::now());
+        self.done_at = None;
+        self.hold_until = None;
+        self.last_usage = None;
+        *self.auth_status.lock().unwrap() = None;
 
         self.settings.last_source_lang = Some(source_lang.clone());
         self.settings.last_target_lang = Some(target_lang.clone());
@@ -165,9 +190,11 @@ impl TranslatorApp {
         let cancel = self.cancel_flag.clone();
         let progress = self.progress.clone();
         let thread_result = self.thread_result.clone();
+        let auth_status = self.auth_status.clone();
 
         std::thread::spawn(move || {
-            let client = ApiClient::new(&auth_token);
+            let mut client =
+                ApiClient::with_credentials(&auth_token, username, password, Some(auth_status));
             let result = client.translate(
                 &srt_content,
                 &source_lang,
@@ -181,13 +208,19 @@ impl TranslatorApp {
                 },
             );
 
+            let refreshed_token = client.take_refreshed_token();
+
             let tr = match result {
-                Ok(translated) => ThreadResult {
-                    translated: Some(translated),
+                Ok(res) => ThreadResult {
+                    translated: Some(res.translation),
+                    usage: res.usage,
+                    refreshed_token,
                     error: None,
                 },
                 Err(e) => ThreadResult {
                     translated: None,
+                    usage: None,
+                    refreshed_token,
                     error: Some(e.to_string()),
                 },
             };
@@ -208,8 +241,46 @@ impl TranslatorApp {
         };
 
         if let Some(tr) = result {
+            // Always persist a refreshed token, regardless of success/failure
+            // — the new token is valid even if the original call failed.
+            if let Some(new_token) = tr.refreshed_token {
+                debug_log!("check_thread_result: saving refreshed auth token");
+                self.settings.auth_token = Some(new_token);
+                self.save_settings_now();
+            }
+            // Clear any lingering "Re-authenticating…" status message.
+            *self.auth_status.lock().unwrap() = None;
+
             if let Some(translated) = tr.translated {
                 self.translated_srt = Some(translated);
+
+                // Update balance + carry usage info into the UI.
+                if let Some(u) = &tr.usage {
+                    self.credits_balance = Some(u.credits_left);
+                    self.last_usage = Some(u.clone());
+                }
+
+                // Compute hold-until timestamp.
+                // The completion modal must be visible for at least MIN_HOLD
+                // after the translation finishes so the user has time to
+                // read cost / remaining credits. If the translation was
+                // faster than MIN_HOLD, hold for the unused portion;
+                // otherwise hold for a fresh MIN_HOLD window.
+                const MIN_HOLD: std::time::Duration = std::time::Duration::from_secs(6);
+
+                let now = std::time::Instant::now();
+                let done_at = now;
+                let hold_until = match self.translation_start {
+                    Some(start) if now.duration_since(start) < MIN_HOLD => {
+                        // Hold for the unused portion of MIN_HOLD.
+                        let remaining = MIN_HOLD - now.duration_since(start);
+                        now + remaining
+                    }
+                    _ => now + MIN_HOLD,
+                };
+                self.done_at = Some(done_at);
+                self.hold_until = Some(hold_until);
+
                 self.translation_state = super::TranslationState::Done;
             } else if let Some(err) = tr.error {
                 self.translation_state = super::TranslationState::Error;
@@ -236,16 +307,21 @@ impl TranslatorApp {
         };
 
         let auth_token = self.settings.auth_token.clone().unwrap_or_default();
+        let username = self.settings.username.clone();
+        let password = self.settings.password.clone();
         let detect_result = self.detect_result.clone();
+        let auth_status = self.auth_status.clone();
 
         self.detecting_language = true;
         self.translation_state = super::TranslationState::Detecting;
         self.translate_status = "Detecting language...".to_string();
         self.detect_start_time = Some(std::time::Instant::now());
         *detect_result.lock().unwrap() = None;
+        *self.auth_status.lock().unwrap() = None;
 
         std::thread::spawn(move || {
-            let client = ApiClient::new(&auth_token);
+            let mut client =
+                ApiClient::with_credentials(&auth_token, username, password, Some(auth_status));
             let result = match client.detect_language(&srt_content) {
                 Ok(detected) => Ok(DetectResult {
                     iso_code: detected.iso_639_1.clone(),
@@ -254,9 +330,18 @@ impl TranslatorApp {
                 }),
                 Err(e) => Err(e.to_string()),
             };
+            // Always drain the refreshed token (if any) so it can be
+            // persisted on the UI thread — even when detect itself failed,
+            // the new token is valid and shouldn't be discarded.
+            let refreshed_token = client.take_refreshed_token();
+
+            let tr = DetectThreadResult {
+                result,
+                refreshed_token,
+            };
 
             if let Ok(mut res) = detect_result.lock() {
-                *res = Some(result);
+                *res = Some(tr);
             }
 
             ctx.request_repaint();
@@ -276,8 +361,18 @@ impl TranslatorApp {
             None
         };
 
-        if let Some(result) = result {
-            match result {
+        if let Some(tr) = result {
+            // Persist any refreshed token before doing anything else — the
+            // new token is valid even if detect itself failed.
+            if let Some(new_token) = tr.refreshed_token {
+                debug_log!("check_detect_result: saving refreshed auth token");
+                self.settings.auth_token = Some(new_token);
+                self.save_settings_now();
+            }
+            // Clear any lingering "Re-authenticating…" status message.
+            *self.auth_status.lock().unwrap() = None;
+
+            match tr.result {
                 Ok(detected) => {
                     if let Some(idx) =
                         find_nearest_language_idx(&self.languages, &detected.w3c_code).or_else(
@@ -325,18 +420,10 @@ impl TranslatorApp {
                 self.draw_progress(ui);
             }
             super::TranslationState::Done => {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(12.0);
-                    ui.colored_label(
-                        egui::Color32::from_rgb(100, 200, 100),
-                        "Translation complete!",
-                    );
-                    ui.add_space(8.0);
-                    if ui.button("OK").clicked() {
-                        self.write_result();
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                });
+                // Controls stay visible behind the modal backdrop; the
+                // completion modal itself is rendered from `update()` so
+                // it overlays the entire window.
+                self.draw_translation_controls(ui, ctx.clone());
             }
             super::TranslationState::Error => {
                 ui.vertical_centered(|ui| {
@@ -466,11 +553,112 @@ impl TranslatorApp {
         );
 
         ui.add_space(4.0);
+
+        // Surface transient API client messages (e.g. "Session expired,
+        // re-authenticating…") right under the progress bar so the user has
+        // context for a longer-than-expected translation.
+        let status_msg = self
+            .auth_status
+            .lock()
+            .ok()
+            .and_then(|g| g.clone());
+        if let Some(msg) = status_msg {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 200, 100),
+                    egui::RichText::new(msg).strong(),
+                );
+            });
+            ui.add_space(2.0);
+        }
+
         if ui.button("Cancel").clicked() {
             self.cancel_flag.store(true, Ordering::Relaxed);
             self.translation_state = super::TranslationState::Error;
             self.translate_status = "Translation cancelled.".to_string();
         }
+    }
+
+    /// Renders the post-translation summary (cost + remaining credits + a
+    /// countdown to auto-close) as a centered modal window with a backdrop.
+    /// Called from `update()` while `translation_state == Done`.
+    pub fn draw_completion_modal(&mut self, ctx: &egui::Context) {
+        super::update::paint_backdrop(ctx);
+
+        let now = std::time::Instant::now();
+        let secs_left = self
+            .hold_until
+            .map(|t| {
+                let d = t.saturating_duration_since(now);
+                d.as_secs_f32().max(0.0)
+            })
+            .unwrap_or(0.0);
+
+        egui::Window::new("Translation Complete")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .frame(
+                egui::Frame::window(&super::update::ui_style_for_modal(ctx))
+                    .corner_radius(10.0)
+                    .shadow(egui::epaint::Shadow {
+                        offset: [0, 4],
+                        blur: 24,
+                        spread: 4,
+                        color: egui::Color32::from_black_alpha(120),
+                    }),
+            )
+            .show(ctx, |ui| {
+                ui.add_space(6.0);
+                ui.vertical_centered(|ui| {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(100, 200, 100),
+                        egui::RichText::new("✓ Translation complete!").strong().size(16.0),
+                    );
+                    ui.add_space(10.0);
+
+                    if let Some(u) = &self.last_usage {
+                        egui::Grid::new("usage_grid_modal")
+                            .num_columns(2)
+                            .spacing([14.0, 5.0])
+                            .min_col_width(130.0)
+                            .show(ui, |ui| {
+                                ui.label(egui::RichText::new("Cost:").strong());
+                                ui.label(format_credits(u.total_price));
+                                ui.end_row();
+
+                                ui.label(egui::RichText::new("Characters:").strong());
+                                ui.label(format!("{}", u.characters_count));
+                                ui.end_row();
+
+                                ui.label(egui::RichText::new("Remaining:").strong());
+                                ui.label(format_credits(u.credits_left));
+                                ui.end_row();
+
+                                if u.duration > 0.0 {
+                                    ui.label(egui::RichText::new("Duration:").strong());
+                                    ui.label(format!("{:.1}s", u.duration));
+                                    ui.end_row();
+                                }
+                            });
+                    } else {
+                        ui.label(
+                            egui::RichText::new("(no usage info returned by server)")
+                                .italics()
+                                .color(egui::Color32::GRAY),
+                        );
+                    }
+
+                    ui.add_space(10.0);
+                    ui.label(
+                        egui::RichText::new(format!("Applying in {secs_left:.0}s…"))
+                            .small()
+                            .color(egui::Color32::from_gray(170)),
+                    );
+                });
+                ui.add_space(4.0);
+            });
     }
 
     pub fn draw_detect_dialog(&mut self, ctx: &egui::Context) {
@@ -521,5 +709,18 @@ impl TranslatorApp {
                 egui::Color32::from_gray(180),
             );
         }
+    }
+}
+
+/// Renders a credit value as an integer when whole, otherwise with 2 decimals.
+///
+/// The API returns credit balances as numbers that are practically always
+/// integers (e.g. `9092`, `2`), but the JSON type is `f64` — so we strip the
+/// trailing `.0` when the value is whole for a cleaner UI.
+fn format_credits(value: f64) -> String {
+    if value.fract() == 0.0 {
+        format!("{}", value as i64)
+    } else {
+        format!("{value:.2}")
     }
 }

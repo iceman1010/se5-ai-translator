@@ -4,3 +4,4 @@
 *.env
 AGENTS.md
 se-ai-translator
+/tests/out/

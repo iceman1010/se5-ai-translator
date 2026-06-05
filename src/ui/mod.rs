@@ -4,9 +4,8 @@ use eframe::egui;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
-use crate::api::LanguageInfo;
-use crate::api::ServiceModel;
-use crate::ui::translate::{DetectResult, ThreadResult};
+use crate::api::{ApiClient, LanguageInfo, ServiceModel, TranslationUsage};
+use crate::ui::translate::{DetectThreadResult, ThreadResult};
 use crate::ui::update::{UpdateCheckResult, UpdateDownloadResult, UpdateState};
 
 mod account;
@@ -77,11 +76,27 @@ pub struct TranslatorApp {
     pub thread_result: Arc<Mutex<Option<ThreadResult>>>,
     pub translated_srt: Option<String>,
 
+    /// Shared transient status sink for the API client to push human-readable
+    /// messages like "Session expired, re-authenticating…". Polled + cleared
+    /// by the UI each frame. `None` = no status to display.
+    pub auth_status: crate::api::StatusSink,
+
+    /// When the in-flight translation started (used to compute how long the
+    /// post-translation summary should be held before auto-closing).
+    pub translation_start: Option<std::time::Instant>,
+    /// When the translation reached `Done` state.
+    pub done_at: Option<std::time::Instant>,
+    /// Earliest time at which we may auto-close the app after a successful
+    /// translation. Set in `check_thread_result`.
+    pub hold_until: Option<std::time::Instant>,
+    /// Usage / pricing info from the last successful translation.
+    pub last_usage: Option<TranslationUsage>,
+
     pub first_frame: bool,
     pub loading_engines: bool,
     pub loading_languages: bool,
     pub detecting_language: bool,
-    pub detect_result: Arc<Mutex<Option<Result<DetectResult, String>>>>,
+    pub detect_result: Arc<Mutex<Option<DetectThreadResult>>>,
     pub detect_start_time: Option<std::time::Instant>,
 
     pub update_state: UpdateState,
@@ -203,6 +218,11 @@ impl TranslatorApp {
             progress: Arc::new(Mutex::new(0.0)),
             thread_result: Arc::new(Mutex::new(None)),
             translated_srt: None,
+            auth_status: Arc::new(Mutex::new(None)),
+            translation_start: None,
+            done_at: None,
+            hold_until: None,
+            last_usage: None,
             first_frame: true,
             loading_engines: false,
             loading_languages: false,
@@ -300,6 +320,17 @@ impl TranslatorApp {
             color,
             created_at: std::time::Instant::now(),
         });
+    }
+
+    /// If `client` refreshed its auth token during a call, persist the new
+    /// value into `self.settings.auth_token` and write it to disk so the next
+    /// plugin run uses it instead of the stale one.
+    pub fn persist_refreshed_token(&mut self, client: &mut ApiClient) {
+        if let Some(new_token) = client.take_refreshed_token() {
+            debug_log!("persist_refreshed_token: saving new auth token");
+            self.settings.auth_token = Some(new_token);
+            self.save_settings_now();
+        }
     }
 
     pub fn draw_toasts(&mut self, ctx: &egui::Context) {
@@ -483,6 +514,26 @@ impl eframe::App for TranslatorApp {
             ctx.request_repaint();
         }
 
+        // Post-translation hold: keep the summary on screen for the minimum
+        // hold window computed in `check_thread_result`, then write the
+        // response and auto-close the plugin window.
+        if matches!(self.translation_state, TranslationState::Done) {
+            let now = std::time::Instant::now();
+            let should_close = self
+                .hold_until
+                .map(|t| now >= t)
+                .unwrap_or(true);
+
+            if should_close {
+                self.write_result();
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            } else {
+                // Repaint at ~4 fps so the countdown ticks visibly but we
+                // don't burn CPU.
+                ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            }
+        }
+
         if matches!(self.translation_state, TranslationState::Detecting) {
             self.check_detect_result();
             ctx.request_repaint();
@@ -567,6 +618,10 @@ impl eframe::App for TranslatorApp {
 
         if self.show_update_dialog {
             self.draw_update_dialog(ctx);
+        }
+
+        if matches!(self.translation_state, TranslationState::Done) {
+            self.draw_completion_modal(ctx);
         }
 
         if matches!(self.services_state, CreditsLoadState::Error) {

@@ -20,7 +20,9 @@ impl TranslatorApp {
         self.services_state = CreditsLoadState::Loading;
         self.services_error.clear();
 
-        let client = ApiClient::new(&token);
+        let username = self.settings.username.clone();
+        let password = self.settings.password.clone();
+        let mut client = ApiClient::with_credentials(&token, username, password, None);
         match client.get_services_info() {
             Ok(models) => {
                 debug_log!("refresh_services_info: {} translation models", models.len());
@@ -40,6 +42,7 @@ impl TranslatorApp {
                         self.selected_service_idx = None;
                     }
                 }
+                self.persist_refreshed_token(&mut client);
                 self.services_state = CreditsLoadState::Loaded;
             }
             Err(e) => {

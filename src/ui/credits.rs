@@ -1,4 +1,3 @@
-use crate::api::ApiClient;
 use crate::debug_log;
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
@@ -18,7 +17,9 @@ impl TranslatorApp {
         self.credits_state = CreditsLoadState::Loading;
         self.credits_error.clear();
 
-        let client = ApiClient::new(&token);
+        let username = self.settings.username.clone();
+        let password = self.settings.password.clone();
+        let mut client = crate::api::ApiClient::with_credentials(&token, username, password, None);
 
         // Balance
         match client.get_credits() {
@@ -49,6 +50,7 @@ impl TranslatorApp {
             }
         }
 
+        self.persist_refreshed_token(&mut client);
         self.credits_state = CreditsLoadState::Loaded;
     }
 
