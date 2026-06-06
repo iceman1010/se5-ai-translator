@@ -462,6 +462,7 @@ impl ApiClient {
         Ok(detected)
     }
 
+    #[allow(dead_code)]
     pub fn fetch_engines(&mut self) -> Result<Vec<String>, TranslateError> {
         let resp = self.send_authed("fetch_engines", |s| {
             s.client

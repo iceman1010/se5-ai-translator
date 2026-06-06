@@ -55,28 +55,37 @@ impl TranslatorApp {
         let password = self.settings.password.clone();
 
         let mut client = ApiClient::with_credentials(&auth_token, username, password, None);
-        self.engines = match client.fetch_engines() {
-            Ok(e) => e,
+
+        // Use /ai/info/services as the single source of truth for the engine
+        // list. It returns both `name` (API identifier) and `display_name`
+        // (human-readable label) plus pricing, so we don't need the bare-
+        // string `translation_apis` endpoint at all.
+        self.services_info = match client.get_services_info() {
+            Ok(models) => {
+                debug_log!("fetch_engines_and_languages: {} service models", models.len());
+                models
+            }
             Err(e) => {
                 self.translate_status = format!("Failed to load engines: {e}");
                 return;
             }
         };
+        self.services_state = super::CreditsLoadState::Loaded;
 
-        if !self.engines.is_empty() {
+        if !self.services_info.is_empty() {
             if let Some(ref last_engine) = self.settings.last_engine {
                 self.selected_engine_idx = self
-                    .engines
+                    .services_info
                     .iter()
-                    .position(|e| e == last_engine)
+                    .position(|m| &m.name == last_engine || &m.display_name == last_engine)
                     .unwrap_or(0);
             }
         }
 
         let engine_for_langs = self
-            .engines
+            .services_info
             .get(self.selected_engine_idx)
-            .map(|s| s.as_str());
+            .map(|m| m.name.as_str());
         self.languages = match client.fetch_languages(engine_for_langs) {
             Ok(l) => l,
             Err(e) => {
@@ -108,9 +117,9 @@ impl TranslatorApp {
         let mut client = ApiClient::with_credentials(&auth_token, username, password, None);
 
         let engine_name = self
-            .engines
+            .services_info
             .get(self.selected_engine_idx)
-            .map(|s| s.as_str());
+            .map(|m| m.name.as_str());
         match client.fetch_languages(engine_name) {
             Ok(l) => {
                 self.languages = l;
@@ -162,9 +171,9 @@ impl TranslatorApp {
             .unwrap_or_else(|| "en".to_string());
 
         let engine = self
-            .engines
+            .services_info
             .get(self.selected_engine_idx)
-            .cloned()
+            .map(|m| m.name.clone())
             .unwrap_or_default();
 
         let auth_token = self.settings.auth_token.clone().unwrap_or_default();
@@ -443,7 +452,7 @@ impl TranslatorApp {
     }
 
     fn draw_translation_controls(&mut self, ui: &mut egui::Ui, ctx: egui::Context) {
-        if self.engines.is_empty() {
+        if self.services_info.is_empty() {
             ui.label("No translation engines available.");
             return;
         }
@@ -471,15 +480,19 @@ impl TranslatorApp {
                     ui.label(egui::RichText::new("Engine").strong());
                     ui.set_min_width(combo_width);
                     let selected_text = self
-                        .engines
+                        .services_info
                         .get(self.selected_engine_idx)
-                        .map(|s| s.as_str())
+                        .map(|m| m.display_name.as_str())
                         .unwrap_or("");
                     egui::ComboBox::from_id_salt("engine_selector")
                         .selected_text(selected_text)
                         .show_ui(ui, |ui| {
-                            for (i, name) in self.engines.iter().enumerate() {
-                                ui.selectable_value(&mut self.selected_engine_idx, i, name);
+                            for (i, model) in self.services_info.iter().enumerate() {
+                                ui.selectable_value(
+                                    &mut self.selected_engine_idx,
+                                    i,
+                                    &model.display_name,
+                                );
                             }
                         });
                     ui.label("");
@@ -526,6 +539,15 @@ impl TranslatorApp {
                 });
 
             ui.add_space(10.0);
+
+            // Fixed-height cost estimate line. Always rendered so layout
+            // never shifts when data loads or engine selection changes.
+            ui.vertical_centered(|ui| {
+                ui.add_space(2.0);
+                ui.label(self.estimate_text());
+                ui.add_space(2.0);
+            });
+
             ui.vertical_centered(|ui| {
                 let btn = egui::Button::new(
                     egui::RichText::new("Translate")
@@ -577,6 +599,40 @@ impl TranslatorApp {
             self.cancel_flag.store(true, Ordering::Relaxed);
             self.translation_state = super::TranslationState::Error;
             self.translate_status = "Translation cancelled.".to_string();
+        }
+    }
+
+    /// Build the pre-translation cost estimate label. Reads the selected
+    /// engine's per-character price directly from `services_info` and
+    /// multiplies by the subtitle character count. Returns a styled
+    /// `RichText` that always occupies one line so layout never shifts.
+    fn estimate_text(&self) -> egui::RichText {
+        let chars = self.subtitle_char_count;
+        if chars == 0 {
+            return egui::RichText::new("—").color(egui::Color32::from_gray(120)).small();
+        }
+
+        match self.services_info.get(self.selected_engine_idx) {
+            Some(model) => {
+                let cost = model.price * chars as f64;
+                let per_1k = model.price * 1000.0;
+                egui::RichText::new(format!(
+                    "\u{2248} {} chars \u{00B7} est. {} credits  ({:.4}/1k)",
+                    format_char_count(chars),
+                    format_credits(cost),
+                    per_1k,
+                ))
+                .color(egui::Color32::from_gray(170))
+                .small()
+            }
+            None => {
+                egui::RichText::new(format!(
+                    "\u{2248} {} chars \u{00B7} loading pricing\u{2026}",
+                    format_char_count(chars),
+                ))
+                .color(egui::Color32::from_gray(140))
+                .small()
+            }
         }
     }
 
@@ -723,4 +779,72 @@ fn format_credits(value: f64) -> String {
     } else {
         format!("{value:.2}")
     }
+}
+
+/// Format a character count with thousands separators (e.g. `1,234`).
+fn format_char_count(n: u64) -> String {
+    let s = n.to_string();
+    let bytes = s.as_bytes();
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    for (i, &b) in bytes.iter().enumerate() {
+        if i > 0 && (bytes.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(b as char);
+    }
+    out
+}
+
+/// Count the number of translatable characters in an SRT subtitle string.
+///
+/// Strips sequence numbers, timestamp lines, and blank lines — only the actual
+/// subtitle text is counted. HTML-style formatting tags (`<i>`, `</i>`, etc.)
+/// are also stripped since they are markup, not translatable content.
+pub fn count_subtitle_chars(srt: &str) -> u64 {
+    let mut count: u64 = 0;
+    for line in srt.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Sequence number line (pure integer)
+        if trimmed.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        // Timestamp line: `00:00:01,000 --> 00:00:04,000`
+        if trimmed.contains("-->") && trimmed.contains(':') {
+            continue;
+        }
+        // Strip HTML-style formatting tags
+        let stripped = strip_srt_tags(trimmed);
+        count += stripped.chars().count() as u64;
+    }
+    count
+}
+
+/// Remove inline SRT/HTML formatting tags: `<i>`, `</i>`, `<b>`, `</b>`,
+/// `<u>`, `</u>`, `{\\a...}`, etc.
+fn strip_srt_tags(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '<' {
+            // Skip until '>'
+            for sc in chars.by_ref() {
+                if sc == '>' {
+                    break;
+                }
+            }
+        } else if c == '{' {
+            // Skip until '}'
+            for sc in chars.by_ref() {
+                if sc == '}' {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }

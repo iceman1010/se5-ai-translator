@@ -61,7 +61,6 @@ pub struct TranslatorApp {
     pub translate_status: String,
     pub account_status: String,
 
-    pub engines: Vec<String>,
     pub languages: Vec<LanguageInfo>,
     pub selected_engine_idx: usize,
     pub prev_engine_idx: usize,
@@ -91,6 +90,11 @@ pub struct TranslatorApp {
     pub hold_until: Option<std::time::Instant>,
     /// Usage / pricing info from the last successful translation.
     pub last_usage: Option<TranslationUsage>,
+
+    /// Character count of the loaded subtitle's text content (excluding
+    /// timestamps, sequence numbers, and formatting tags). Computed once in
+    /// `set_request()` and used for pre-translation cost estimates.
+    pub subtitle_char_count: u64,
 
     pub first_frame: bool,
     pub loading_engines: bool,
@@ -206,7 +210,6 @@ impl TranslatorApp {
             active_tab: Tab::Translate,
             translate_status: String::new(),
             account_status: String::new(),
-            engines: Vec::new(),
             languages: Vec::new(),
             selected_engine_idx: 0,
             prev_engine_idx: 0,
@@ -223,6 +226,7 @@ impl TranslatorApp {
             done_at: None,
             hold_until: None,
             last_usage: None,
+            subtitle_char_count: 0,
             first_frame: true,
             loading_engines: false,
             loading_languages: false,
@@ -256,6 +260,16 @@ impl TranslatorApp {
             request.settings
         );
         self.response_path = Some(request.response_file_path.clone());
+
+        // Count subtitle characters for cost estimation.
+        let srt = request
+            .subtitle
+            .sub_rip
+            .as_deref()
+            .or(request.subtitle.native.as_deref())
+            .unwrap_or("");
+        self.subtitle_char_count = crate::ui::translate::count_subtitle_chars(srt);
+        debug_log!("set_request: {} subtitle characters", self.subtitle_char_count);
 
         let loaded_settings = PluginSettings::from_se_settings(request.settings.as_ref());
         debug_log!(

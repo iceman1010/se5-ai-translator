@@ -51,7 +51,7 @@ impl TranslatorApp {
         self.settings.auth_token = None;
         self.settings.username = None;
         self.settings.password = None;
-        self.engines.clear();
+        self.services_info.clear();
         self.languages.clear();
         self.translation_state = super::TranslationState::Idle;
         self.active_tab = Tab::Account;
