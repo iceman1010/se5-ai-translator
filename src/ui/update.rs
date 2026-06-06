@@ -13,7 +13,7 @@ pub fn ui_style_for_modal(ctx: &egui::Context) -> egui::Style {
 pub fn paint_backdrop(ctx: &egui::Context) {
     let screen_rect = ctx.screen_rect();
     egui::Area::new(egui::Id::new("modal_backdrop"))
-        .order(egui::Order::Foreground)
+        .order(egui::Order::Middle)
         .fixed_pos(screen_rect.left_top())
         .interactable(true)
         .show(ctx, |ui| {
