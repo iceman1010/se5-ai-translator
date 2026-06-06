@@ -217,8 +217,8 @@ impl TranslatorApp {
     }
 
     pub fn process_update_result(&mut self) {
-        if let Ok(mut res) = self.update_check_result.lock() {
-            if let Some(outcome) = res.take() {
+        if let Ok(mut res) = self.update_check_result.lock()
+            && let Some(outcome) = res.take() {
                 match outcome {
                     Ok(Some((version, download_url))) => {
                         self.update_state = UpdateState::UpdateAvailable {
@@ -235,7 +235,6 @@ impl TranslatorApp {
                     }
                 }
             }
-        }
     }
 
     pub fn start_self_update(&mut self, ctx: egui::Context) {
@@ -265,7 +264,7 @@ impl TranslatorApp {
                     .send()
                     .map_err(|e| format!("Failed to download update: {e}"))?;
 
-                let total = resp.content_length().unwrap_or(0) as u64;
+                let total = resp.content_length().unwrap_or(0);
                 let mut archive_data = Vec::with_capacity((total as usize).max(1024 * 1024));
 
                 let chunk_size: u64 = 64 * 1024;
@@ -313,8 +312,8 @@ impl TranslatorApp {
     }
 
     pub fn process_download_result(&mut self) {
-        if let Ok(mut res) = self.update_download_result.lock() {
-            if let Some(outcome) = res.take() {
+        if let Ok(mut res) = self.update_download_result.lock()
+            && let Some(outcome) = res.take() {
                 match outcome {
                     Ok(()) => {
                         self.update_state = UpdateState::Downloaded;
@@ -326,7 +325,6 @@ impl TranslatorApp {
                     }
                 }
             }
-        }
     }
 
     pub fn draw_settings_tab(&mut self, ui: &mut egui::Ui, ctx: egui::Context) {

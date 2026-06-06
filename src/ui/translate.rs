@@ -40,10 +40,7 @@ pub fn find_nearest_language_idx(languages: &[LanguageInfo], detected_code: &str
                 let lc_lower = l.language_code.to_lowercase();
                 let base_lang = lc_lower.split('-').next().unwrap_or("");
                 let base_lang2 = lc_lower.split('_').next().unwrap_or("");
-                base_lang == base_detected
-                    || base_lang2 == base_detected2
-                    || base_detected == base_lang
-                    || base_detected2 == base_lang2
+                base_lang == base_detected || base_lang2 == base_detected2
             })
         })
 }
@@ -72,15 +69,14 @@ impl TranslatorApp {
         };
         self.services_state = super::CreditsLoadState::Loaded;
 
-        if !self.services_info.is_empty() {
-            if let Some(ref last_engine) = self.settings.last_engine {
+        if !self.services_info.is_empty()
+            && let Some(ref last_engine) = self.settings.last_engine {
                 self.selected_engine_idx = self
                     .services_info
                     .iter()
                     .position(|m| &m.name == last_engine || &m.display_name == last_engine)
                     .unwrap_or(0);
             }
-        }
 
         let engine_for_langs = self
             .services_info
@@ -358,11 +354,10 @@ impl TranslatorApp {
     }
 
     pub fn check_detect_result(&mut self) {
-        if let Some(start) = self.detect_start_time {
-            if start.elapsed() < std::time::Duration::from_millis(1500) {
+        if let Some(start) = self.detect_start_time
+            && start.elapsed() < std::time::Duration::from_millis(1500) {
                 return;
             }
-        }
 
         let result = if let Ok(mut res) = self.detect_result.lock() {
             res.take()

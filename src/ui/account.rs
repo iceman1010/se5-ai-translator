@@ -114,11 +114,10 @@ impl TranslatorApp {
             if ui.button(login_label).clicked() {
                 self.do_login();
             }
-            if is_logged_in {
-                if ui.button("Logout").clicked() {
+            if is_logged_in
+                && ui.button("Logout").clicked() {
                     self.do_logout();
                 }
-            }
 
             if !self.account_status.is_empty() {
                 ui.add_space(4.0);

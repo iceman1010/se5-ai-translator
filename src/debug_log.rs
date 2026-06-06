@@ -17,8 +17,8 @@ pub fn init_log() {
 }
 
 pub fn log(msg: &str) {
-    if let Ok(mut guard) = LOG_FILE.lock() {
-        if let Some(ref mut file) = *guard {
+    if let Ok(mut guard) = LOG_FILE.lock()
+        && let Some(ref mut file) = *guard {
             let ts = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -26,7 +26,6 @@ pub fn log(msg: &str) {
             let _ = writeln!(file, "[{ts}] {msg}");
             let _ = file.flush();
         }
-    }
 }
 
 #[macro_export]

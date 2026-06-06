@@ -37,11 +37,10 @@ impl TranslatorApp {
                 self.services_info = models;
                 // Keep current selection if still valid. Don't auto-select: an
                 // unselected state reads cleaner (no surprise blue row).
-                if let Some(idx) = self.selected_service_idx {
-                    if idx >= self.services_info.len() {
+                if let Some(idx) = self.selected_service_idx
+                    && idx >= self.services_info.len() {
                         self.selected_service_idx = None;
                     }
-                }
                 self.persist_refreshed_token(&mut client);
                 self.services_state = CreditsLoadState::Loaded;
             }
