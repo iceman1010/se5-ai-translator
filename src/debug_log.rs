@@ -1,3 +1,4 @@
+use crate::config::DEBUG_LOGGER_ENABLED;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::Mutex;
@@ -6,6 +7,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 static LOG_FILE: Mutex<Option<std::fs::File>> = Mutex::new(None);
 
 pub fn init_log() {
+    if !DEBUG_LOGGER_ENABLED {
+        return;
+    }
     if let Ok(home) = std::env::var("HOME") {
         let dir = format!("{home}/.cache/se-ai-translator");
         let _ = std::fs::create_dir_all(&dir);
@@ -17,6 +21,9 @@ pub fn init_log() {
 }
 
 pub fn log(msg: &str) {
+    if !DEBUG_LOGGER_ENABLED {
+        return;
+    }
     if let Ok(mut guard) = LOG_FILE.lock()
         && let Some(ref mut file) = *guard {
             let ts = SystemTime::now()
@@ -31,6 +38,8 @@ pub fn log(msg: &str) {
 #[macro_export]
 macro_rules! debug_log {
     ($($arg:tt)*) => {
-        $crate::debug_log::log(&format!($($arg)*))
+        if $crate::config::DEBUG_LOGGER_ENABLED {
+            $crate::debug_log::log(&format!($($arg)*))
+        }
     };
 }
