@@ -16,16 +16,10 @@ pub struct LanguageInfo {
 /// present in practice ("slow" | "medium" | "fast" | "very slow").
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServiceModel {
-    /// Internal API identifier (e.g. "gemini3-flash"). Not currently displayed
-    /// in the UI but kept for future use (e.g. deep-linking to a model).
-    #[allow(dead_code)]
+    /// Internal API identifier (e.g. "gemini3-flash").
     pub name: String,
     pub display_name: String,
     pub description: String,
-    /// Coarse pricing label, e.g. "Pay-per-character". Same for all translation
-    /// models, so currently unused in the UI. Kept for completeness.
-    #[allow(dead_code)]
-    pub pricing: String,
     /// "low" | "medium" | "high"
     pub reliability: String,
     /// "slow" | "medium" | "fast" | "very slow"
@@ -60,35 +54,9 @@ pub struct ServicesInfoResponse {
 pub struct ServicesInfoData {
     #[serde(default)]
     pub translation: Vec<ServiceModel>,
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub transcription: Vec<serde_json::Value>,
 }
 
 impl ApiClient {
-    #[allow(dead_code)]
-    pub fn fetch_engines(&mut self) -> Result<Vec<String>, TranslateError> {
-        let resp = self.send_authed("fetch_engines", |s| {
-            s.client
-                .post(format!("{API_BASE_URL}/ai/info/translation_apis"))
-                .headers(s.common_headers())
-        })?;
-
-        let data: serde_json::Value = resp
-            .json()
-            .map_err(|e| TranslateError::Api(e.to_string()))?;
-        let engines = data
-            .get("data")
-            .and_then(|d| d.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
-        Ok(engines)
-    }
-
     pub fn fetch_languages(
         &mut self,
         engine: Option<&str>,

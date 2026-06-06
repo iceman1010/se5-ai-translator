@@ -3,18 +3,8 @@
 use super::{ApiClient, TranslateError, API_BASE_URL};
 use crate::debug_log;
 use reqwest::blocking::multipart;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::time::Duration;
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct TranslationStatusResponse {
-    pub status: Option<String>,
-    pub translation: Option<String>,
-    pub correlation_id: Option<String>,
-    pub errors: Option<Vec<String>>,
-}
 
 /// Pricing / usage info returned by the API on a completed translation.
 ///

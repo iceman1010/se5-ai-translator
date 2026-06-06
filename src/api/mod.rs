@@ -13,16 +13,9 @@ mod detect;
 mod info;
 mod translate;
 
-#[allow(unused_imports)]
-pub use auth::LoginResponse;
-#[allow(unused_imports)]
-pub use credits::{CreditBalanceData, CreditBalanceResponse, CreditPackage, CreditPackagesResponse};
-#[allow(unused_imports)]
-pub use detect::DetectedLanguage;
-#[allow(unused_imports)]
-pub use info::{LanguageInfo, ServiceModel, ServicesInfoData, ServicesInfoResponse};
-#[allow(unused_imports)]
-pub use translate::{TranslationResult, TranslationStatusResponse, TranslationUsage};
+pub use credits::CreditPackage;
+pub use info::{LanguageInfo, ServiceModel};
+pub use translate::TranslationUsage;
 
 use crate::config::API_KEY;
 use crate::debug_log;
@@ -74,14 +67,6 @@ pub struct ApiClient {
 }
 
 impl ApiClient {
-    /// Backwards-compatible constructor: no stored credentials, so no
-    /// automatic re-authentication. Use [`ApiClient::with_credentials`] for
-    /// callers that can supply username + password.
-    #[allow(dead_code)]
-    pub fn new(auth_token: &str) -> Self {
-        Self::build(auth_token, None, None, None)
-    }
-
     /// Constructor that enables automatic re-authentication on token expiry.
     /// `status_sink` is optional — pass `None` if the caller doesn't care to
     /// surface "Re-authenticating…" status messages.

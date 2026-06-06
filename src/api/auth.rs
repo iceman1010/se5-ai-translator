@@ -4,12 +4,6 @@ use super::{ApiClient, TranslateError, API_BASE_URL};
 use crate::config::API_KEY;
 use crate::debug_log;
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct LoginResponse {
-    pub token: Option<String>,
-}
-
 impl ApiClient {
     /// Authenticate against the API and return a fresh bearer token.
     /// Static method — callable without an existing `ApiClient` instance.

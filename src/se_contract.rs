@@ -2,61 +2,17 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
 pub struct SeRequest {
-    pub api_version: u32,
-    pub request_type: String,
     pub response_file_path: String,
-    #[allow(dead_code)]
-    pub temp_directory: Option<String>,
     pub subtitle: SeSubtitle,
-    #[allow(dead_code)]
-    pub selected_indices: Vec<usize>,
-    #[allow(dead_code)]
-    pub video_file_name: Option<String>,
-    #[allow(dead_code)]
-    pub frame_rate: Option<f64>,
-    #[allow(dead_code)]
-    pub video_duration_seconds: Option<f64>,
-    #[allow(dead_code)]
-    pub video_width: Option<u32>,
-    #[allow(dead_code)]
-    pub video_height: Option<u32>,
-    #[allow(dead_code)]
-    pub ui_language: Option<String>,
-    #[allow(dead_code)]
-    pub theme: Option<String>,
-    #[allow(dead_code)]
-    pub theme_colors: Option<SeThemeColors>,
-    #[allow(dead_code)]
-    pub se_version: Option<String>,
     pub settings: Option<serde_json::Value>,
-    pub settings_version: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SeSubtitle {
-    #[allow(dead_code)]
-    pub format: Option<String>,
-    #[allow(dead_code)]
-    pub file_name: Option<String>,
-    #[allow(dead_code)]
-    pub native: Option<String>,
     pub sub_rip: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
-pub struct SeThemeColors {
-    pub is_dark: Option<bool>,
-    pub background_color: Option<String>,
-    pub foreground_color: Option<String>,
-    pub accent_color: Option<String>,
-    pub background_color_lighter: Option<String>,
-    pub background_color_header: Option<String>,
-    pub bookmark_color: Option<String>,
+    pub native: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
